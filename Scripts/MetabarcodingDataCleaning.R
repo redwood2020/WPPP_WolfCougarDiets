@@ -23,7 +23,7 @@ library(reshape2)
 library(splitstackshape)
 
 # read in the wolf, cougar, and black bear scat metabarcoding results
-meta <- read.csv('../Data/IlluminaRun23_Satterfield_UW__results_Fall2021_v2_wCanisResults.csv', header=T)
+meta <- read.csv('./Data/IlluminaRun23_Satterfield_UW__results_Fall2021_v2_wCanisResults.csv', header=T)
 meta <- as.data.table(meta)
 head(meta)
 
@@ -55,72 +55,123 @@ meta_nc <- meta %>%
 diets <- meta_nc %>%
   group_by(SampleID, Scientific_Name) %>%
   slice(which.max(Query_Coverage))
+# View(diets)
 
 # subset the metabarcoding results to unique prey items in each scat and select the rows with the highest query coverage
-diets <- meta_nc %>%
-  group_by(SampleID, Scientific_Name, Rep) %>%
-  slice(which.max(Query_Coverage)) %>%
-  mutate(sum.rep = sum(Counts)) 
-View(diets)
+# diets <- diets %>%
+#   mutate(sum.rep = sum(Counts)) 
+# View(diets)
 
 # now create a dataframe of sampleID and total sum of read counts per sample/ diet item / rep
-diets.tot.rep <- meta_nc %>%
-  group_by(SampleID) %>%
-  mutate(sum.tot = sum(Counts)) 
+# diets.tot.rep <- meta_nc %>%
+#   group_by(SampleID) %>%
+#   mutate(sum.tot = sum(Counts))
+# 
+# diets.tot.rep <- diets.tot.rep %>%
+#   group_by(SampleID) %>% 
+#   slice(which.max(sum.tot)) %>%
+#   select(SampleID, sum.tot)
+# View(diets.tot.rep)
 
-diets.tot.rep <- diets.tot.rep %>%
-  group_by(SampleID) %>% 
-  slice(which.max(sum.tot)) %>%
-  select(SampleID, sum.tot)
-View(diets.tot.rep)
-  
 # merge dataframes to create new column for total read count per sample and percent of total read count per rep a, b, and c
-diets <- merge(diets, diets.tot.rep, by = "SampleID")
+# diets <- merge(diets, diets.tot.rep, by = "SampleID")
+# View(diets)
 
 # create new column to calculate the percent of total read counts represented by each rep count
-diets <- diets %>%
-  mutate(rep.pct.tot = sum.rep/sum.tot)
-View(diets)
+# diets <- diets %>%
+#   mutate(rep.pct.tot = sum.rep/sum.tot)
+# View(diets)
 
 # now look for instances where the read counts percents (rep.pct.tot) are <0.005 or <0.01 (less than 0.5% or less than 1%) of total read count (sum.tot)
-low.reads <- diets[which(diets$rep.pct.tot <= 0.01),]
-View(low.reads)
+# low.reads <- diets[which(diets$rep.pct.tot <= 0.01),]
+# View(low.reads)
+
+# now look for instances where only one species' dna showed up in the scat, meaning that it was "empty" (depositor dna found but no prey dna) or "prey only" (no depositor dna, only prey dna)
+unusable <- diets %>%
+  group_by(SampleID) %>%
+  filter(length(unique(Scientific_Name)) == 1)
+# View(unusable)
+length(unique(unusable$SampleID)) #160 (so 404 usable)
+length(unique(diets$SampleID)) #564 amplified from the total of 606
+
+# remove rows from full dataframe that match with sample IDs in the "unusable" dataframe which don't contain dna from at least one depositor and one prey dna
+usable <- diets[!(diets$SampleID %in% unusable$SampleID),]
+View(usable)
+length(unique(usable$SampleID)) #404
+
+# calculate success rates - 606 samples sent in all
+564/606 # 93.1% - percent amplified 
+404/606 # 66.7% percent both depostor and prey dna (no empty (depostior only) or prey only)
+
 
 # left off here on 8/31/2022
 #########################
 
-# subset to data where Query Coverage and % Identical Matches are less than 100
+# read in the wolf, cougar, and black bear scat metabarcoding results from Ellie looking at WTD vs MD species
+scat.deer <- read.csv('./Data/Scat Metabarcoding - Deer Genetics Results.csv', header=T)
+scat.deer <- as.data.table(scat.deer)
+head(scat.deer)
 
-diets_sub <- diets %>%
-  filter(Percent_Identical_Matches<100)
+# subset scat where the "Confidence" value is "High" or "Medium" -> good enough to include in analysis 
+scat.deer <- scat.deer %>%
+  filter(Confidence == "High" | Confidence == "Med")
+levels(as.factor(scat.deer$Confidence))
+# View(scat.deer)
+length(unique(scat.deer$Sample))
+head(scat.deer)
 
-table(meta_nc$Percent_Identical_Matches) 
-table(diets$Percent_Identical_Matches) 
-head(meta_nc[ which(meta_nc$Percent_Identical_Matches < 91), ])
+# rename "Sample" column to "SampleID" to match other database
+scat.deer <- rename(scat.deer, SampleID = Sample)
 
-table(meta_nc$Query_Coverage) 
-table(diets$Query_Coverage) 
+# rename MD (mule deer) to "Odocoileus hemionus" and WTD to "Odocoileus virginianus"
+scat.deer$Species.ID <- recode_factor(scat.deer$Species.ID, 'MD' = "Odocoileus hemionus", 'WTD' = "Odocoileus virginianus") # recode all to Odocoileus
 
+# in the usable database, remove a trailing "A" from any samples with the "A" listed at the end - needed so IDs will match with the scat.deer database
+usable$SampleID <- sub("A$", "", usable$SampleID)
+View(usable)
 
-# figure out which entries are a 100% match in both Percent_Identical_Matches and Query_Coverage
-diets_100 <- diets %>% distinct(SampleID, Scientific_Name_Simple, .keep_all = TRUE)
-# find rows in full dataset (meta_nc) that are not in the "100%" dataset (diets_100)
-# https://stackoverflow.com/questions/3171426/compare-two-data-frames-to-find-the-rows-in-data-frame-1-that-are-not-present-in
-questionable <- anti_join(meta_nc, diets_100)
+# now replace "Odocoileus spp." column with appropriate confirmed deer spp from the scat.deer database
+# first under replace all "Odocoileus (HapA)" and "Odocoileus HapB" with just "Odocoileus" - the HapA and HapB didn't mean anything (genetic differentiation from Levi Lab where they thought this might be a species distinguisher - it was not)
+sort(unique(usable$Scientific_Name)) #first look to make sure there aren't random ones
+usable$Scientific_Name <- as.factor(usable$Scientific_Name) #create factor
+usable$Scientific_Name <- recode_factor(usable$Scientific_Name, 'Odocoileus (HapA)' = "Odocoileus", 'Odocoileus HapB' = "Odocoileus") # recode all to Odocoileus
+View(usable)
 
-diets <- as.data.frame(diets)
-head(diets)
-str(diets)
+# now replace cases where "Scientific Name" = "Odocoileus in the 'usable' database with the specific deer species designation from the 'scat.deer' database
+usable.d <- as.data.frame(usable) # convert list to dataframe
+class(usable.d)
+usable.m <- merge(usable.d, scat.deer[, c("SampleID", "Species.ID")], by="SampleID", all.x = TRUE)
+View(usable.m)
+usable.m$Scientific_Name <- as.character(usable.m$Scientific_Name)
+usable.m$Species.ID <- as.character(usable.m$Species.ID)
+str(usable.m)
+
+for (i in 1:length(usable.m$Scientific_Name)) {
+  if (usable.m[i,]$Scientific_Name == "Odocoileus" & !is.na(usable.m[i,]$Species.ID)) {
+    (usable.m[i,]$Scientific_Name <- usable.m[i,]$Species.ID)
+  } else {
+    (usable.m[i,]$Scientific_Name <- usable.m[i,]$Scientific_Name)
+  }
+}
+
+usable.m <- select(usable.m, -Species.ID)
+
+View(usable.m) #now we have Ellie's scat sample results combined with the metabarcoding results!
+
+# Write a database with only the 404 useable samples (no prey only, no depositor only), already filtered at 0.05% relative read counts per rep by Taal/Jenn, with both Canis PCR and Odocoileus PCR results included
+# write.csv(usable.m, file = './Data/Metabarcoding_UsableDataset_Canis_Odocoileus.csv', row.names = FALSE)
+
+######################################################################
+
+#to create a different format of data
+diets <- usable.m
 
 diets <- diets %>%
   group_by(SampleID) %>%
   # Create string listing all items in given Id, separated by comma
-  summarise(Items = str_c(Scientific_Name_Simple, collapse = ', '))
+  summarise(Items = str_c(Scientific_Name, collapse = ', '))
 
-head(diets)
-
-# look at results by species
-table(meta_nc$Scientific_Name_Simple, meta$Depositor_Field)
+head(diets, 12) #NB018 is the first one with Odocoileus down to spp.
 
 # remove spaces before diet items
 diets <- separate(diets, 'Items', paste("Diet_Item", 1:6, sep="_"), sep=",", extra="drop")
@@ -133,6 +184,11 @@ diets <- as.data.frame(diets)
 diets
 
 # Create fields for Study Area and Depositor from FieldID, plus a column of NAs for Depositor from DNA
+
+##########
+### Check for the few cases where and Id changed study areas based on error - might be none but check the old metabarcoding log that the undergrad lab interns worked on for any anomalies
+##########
+
 diets <- diets %>%
   mutate(StudyArea=substr(SampleID,1,1),.after = SampleID) %>%
   mutate(Depositor_Field=substr(SampleID,2,2),.after = StudyArea) %>%
@@ -148,12 +204,6 @@ diets <- data.table(diets) %>%
 # check the output
 head(diets)
 tail(diets)
-
-# check to see if last three rows are necessary - they are all empty so remove them
-# table(diets$Diet_Item_7)
-# table(diets$Diet_Item_8)
-# table(diets$Diet_Item_9)
-# diets <- diets[,1:10]
 
 # populate Depositor_DNA with carnivore if present in same row
 
@@ -179,16 +229,19 @@ for (i in 1:length(diets$SampleID)) {
 # check it
 head(diets)
 tail(diets)
+# View(diets)
 table(diets$Depositor_DNA)
 table(diets$Depositor_Field)
+sum(table(diets$Depositor_DNA)) # gut check - should be 404
+sum(table(diets$Depositor_Field)) # gut check - should be 404
 
 # now remove values from the Diet_Item_X columns if they match the Depostitor_DNA columns
 for (i in 1:length(diets$SampleID)) {
-  temp <- as.vector(diets[i])[1,]
+  temp <- as.vector(diets[i])
   print_val <- NULL
-  if (temp$Depositor_DNA %in% temp[1,5:10]) {
-    col_val <- match(temp[1,5:10], temp$Depositor_DNA)
-    col_val <- as.numeric(which(col_val==1) + 4) # add 4 to account for the four columns we ignore
+  if (temp$Depositor_DNA %in% temp[5:10]) {
+    col_val <- match(temp[5:10], temp$Depositor_DNA)
+    col_val <- as.integer(as.numeric(which(col_val==1)) + 4) # add 4 to account for the four columns we ignore (the first four columns so SampleID...DepositorID)
     print_val <- as.character(diets[i, ..col_val])
     diets[i, col_val] <- NA
   } else {
@@ -196,9 +249,21 @@ for (i in 1:length(diets$SampleID)) {
   }
 }
 
+# Only two samples threw an error - NW077 and OW035 which are the two scats that came back as Canis  spp. only (PCR couldn't differentiate  between wolf and coyote)
+
 # look at the resulting data
 head(diets)
-# View(diets)
+View(diets)
+
+# test to make sure that no depositors are left in the "diet" columns (note that bear shows up a few times as a diet item in wolf scats)
+table(diets$Diet_Item_1)
+table(diets$Diet_Item_2)
+table(diets$Diet_Item_3)
+table(diets$Diet_Item_4)
+table(diets$Diet_Item_5)
+table(diets$Diet_Item_6) # no prey items in Diet_Item_6, so remove
+diets <- diets[,1:9] # removing the Diet_Items_6 column that is empty
+
 diets <- as.data.frame(diets)
 str(diets)
 
@@ -210,86 +275,42 @@ with(diets, table(StudyArea, Depositor_DNA))
 # https://stackoverflow.com/questions/49079789/using-r-to-shift-values-to-the-left-of-data-frame
 diets[] <-  t(apply(diets, 1, function(x) c(x[!is.na(x)], x[is.na(x)])))
 head(diets)
+length(diets$SampleID) # should be 404
 # View(diets)
 
-# write to .csv
-# write.csv(diets, "diets.csv", row.names = FALSE)
-
-# Now merge with WTD vs MD analysis by Ellie Reese to get Odocoileus down to species
-# Note that I subset Ellie's results to only those with Med and High confidence 
-# To make the code simpler and made the matching column "SampleID"
-# First, read in Ellie's data, subset to only Med and High confidence results
-# https://stackoverflow.com/questions/1299871/how-to-join-merge-data-frames-inner-outer-left-right
-deer_results <- read.csv("Ellie_ScatDeerResults_Preliminary_March7.2022.csv", header=T)
-head(deer_results)
-
-#merge with the diets results
-diets_deer <- merge(x = diets, y = deer_results, by = "SampleID", all = TRUE)
-head(diets_deer)
-
-# subset just columns from diets_long plus Species.ID from Ellie's data
-diets_deer <- diets_deer[c("SampleID", "StudyArea", "Depositor_Field", "Depositor_DNA","Diet_Item_1", "Diet_Item_2", "Diet_Item_3", "Diet_Item_4", "Diet_Item_5", "Diet_Item_6", "Species.ID")]
-head(diets_deer)
-table(diets_deer$Species.ID)
-
-# replace MD and WTD with scientific names in the Species.ID column
-diets_deer$Species.ID[diets_deer$Species.ID == "MD"] <- "Odocoileus hemionus"
-diets_deer$Species.ID[diets_deer$Species.ID == "WTD"] <- "Odocoileus virginianus"
-View(diets_deer)
-head(diets_deer)
-
-# now we want to replace all occurrences of Odocoileus spp. with the specific species
-# from the Species.ID column where it exists, but do not change it otherwise
-
-for (i in 1:length(diets_deer$SampleID)) {
-  if ("Odocoileus spp." %in% diets_deer$Diet_Item_1[i]) {
-    diets_deer$Diet_Item_1[i] <- diets_deer$Species.ID[i]
-  } else if ("Odocoileus spp." %in% diets_deer$Diet_Item_2[i]) {
-    diets_deer$Diet_Item_2[i] <- diets_deer$Species.ID[i]
-  } else if ("Odocoileus spp." %in% diets_deer$Diet_Item_3[i]) {
-    diets_deer$Diet_Item_3[i] <- diets_deer$Species.ID[i]
-  } else if ("Odocoileus spp." %in% diets_deer$Diet_Item_4[i]) {
-    diets_deer$Diet_Item_4[i] <- diets_deer$Species.ID[i]
-  } else if ("Odocoileus spp." %in% diets_deer$Diet_Item_5[i]) {
-    diets_deer$Diet_Item_5[i] <- diets_deer$Species.ID[i]
-  } else if ("Odocoileus spp." %in% diets_deer$Diet_Item_6[i]) {
-    diets_deer$Diet_Item_6[i] <- diets_deer$Species.ID[i]
-  } else {
-      print(cat(diets_deer$SampleID[i], diets_deer$Species.ID[i], print_val, "skip", " "), sep=" ")
-  }
-}
-View(diets_deer)
-
-# shift missing diet values to the left again
-# https://stackoverflow.com/questions/49079789/using-r-to-shift-values-to-the-left-of-data-frame
-diets_deer[] <-  t(apply(diets_deer, 1, function(x) c(x[!is.na(x)], x[is.na(x)])))
-head(diets_deer)
-View(diets_deer)
-
-# check for Diet_Item columns that are all NA and remove if so (don't do this earlier 
-# though because we have to move the carnivore depositor ID over, so need at least 5
-# diet item columns since the most in one scat is four items plus depositor)
-table(diets_deer$Diet_Item_1)
-table(diets_deer$Diet_Item_2)
-table(diets_deer$Diet_Item_3)
-table(diets_deer$Diet_Item_4) # only two samples have four diet items
-table(diets_deer$Diet_Item_5) # none have 5 items
-table(diets_deer$Diet_Item_6) # none have 6 items
-
-diets_deer <- diets_deer[,1:8]
-head(diets_deer)
-
-# write.csv(diets_deer, "diets_deer.csv", row.names = FALSE)
+# write.csv(diets, "./Data/diets_wide.csv", row.names = FALSE)
 
 # now create it in long format
-colnames(diets_deer)
-diets_long <- gather(diets_deer, diet_item, prey_item, Diet_Item_1:Diet_Item_4, factor_key=TRUE) # long format
+colnames(diets)
+diets_long <- gather(diets, diet_item, prey_item, Diet_Item_1:Diet_Item_5, factor_key=TRUE) # long format
 diets_long <- diets_long %>% drop_na(prey_item)
 with(diets_long, diets_long[order(SampleID, prey_item),]) # sort by SampleID, prey_item
-tail(diets_long, 30)
+head(diets_long, 30)
+
+# look at some summary tables of field accuracy of Depositor_Field as compared to Depositor_DNA
+# note that we filter to "Diet_Item_1" to get one entry per SampleID for the purposes of making the table only
+diets_long_unique <- diets_long[which(diets_long$diet_item == "Diet_Item_1"),]
+length(unique(diets_long_unique$SampleID)) # should be 404
+with(diets_long_unique, table(Depositor_DNA, Depositor_Field))
+
+# we have some non-target scats deposited by coyote (Canis latrans), unknown canid (Canis spp.), and bobcat (Lynx rufus) - remove these entries
+# note that we are doing this from the 'diets_long' file since we want to apply this to the full dataset 
+diets_long_clean <- diets_long[!(diets_long$Depositor_DNA=="Canis latrans" | diets_long$Depositor_DNA=="Canis spp." | diets_long$Depositor_DNA=="Lynx rufus"),]
+View(diets_long_clean) 
+# should have removed 19 scats in total for being from non-target spp.
+404-19 # new data should have 385 unique scats
+
+# again, look at some summary tables of field accuracy of Depositor_Field as compared to Depositor_DNA
+# note that we filter to "Diet_Item_1" to get one entry per SampleID for the purposes of making the table only
+diets_long_unique <- diets_long_clean[which(diets_long_clean$diet_item == "Diet_Item_1"),]
+length(unique(diets_long_unique$SampleID)) # should be 385
+with(diets_long_unique, table(Depositor_DNA, Depositor_Field))
+# so we misidentified 43 scats total out of 404 - 19 (non-target depositor, ie, coyote, bobcat, canis spp.) + 23 (one of three target depositors but misidentified)
+(404-43)/404 # 89.4% accuracy overall
+(385-19)/385 # 95.1% accuracy within genetically confirmed target spp.
 
 # write the long format .csv file
-write.csv(diets_long, "diets_long_deer.csv", row.names = FALSE)
+# write.csv(diets_long_clean, "./Data/diets_long.csv", row.names = FALSE)
 
 
 

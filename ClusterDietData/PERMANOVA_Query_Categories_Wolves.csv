@@ -1,0 +1,11 @@
+,AnimalID,Species,StudyArea,Sex,bird,carnivore,deerunkspp,dumpsite,elk,lagomorph,livestock,med_mammal,moose,muledeer,other,small_mammal,whitetaileddeer
+1,48F,Wolf,Northeast,Female,1,,2,2,1,,,,2,,,,2
+2,52F,Wolf,Northeast,Female,,,4,2,,1,,,1,,,,3
+3,61M,Wolf,Okanogan,Male,,,1,1,,,,1,,10,,,
+4,74M,Wolf,Northeast,Male,,,1,,,,,,,,,,1
+5,82F,Wolf,Northeast,Female,,,3,1,,,,,12,,,,
+6,85M,Wolf,Northeast,Male,,,2,,1,,,,,,,,
+7,87M,Wolf,Northeast,Male,2,,2,,,,,,,,,,1
+8,91F,Wolf,Northeast,Female,1,,1,3,,,,1,,,,,1
+9,93M,Wolf,Okanogan,Male,1,2,2,,,,,,,,,,
+10,94M,Wolf,Okanogan,Male,,,1,,,,,,,4,,,

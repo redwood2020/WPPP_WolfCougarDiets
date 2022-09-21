@@ -171,10 +171,46 @@ FO_coug_spp <- sapply(FO_coug_bi,sum)
 FO_coug_spp <- FO_coug_spp/as.integer(nrow(FO_coug_bi))
 FO_coug_spp <- stack(FO_coug_spp)
 FO_coug_spp
-hist(FO_coug_spp)
   
 # ok so next step is to make this into a larger table with columns for "Depositor_DNA", "StudyArea", "PreySpp", "%FO"
 # maybe make the above into a function - DepostiorSpecies, StudyArea, PreyCategoryType (ie prey_simple_deerspp or prey_simple_unkdeer)
+# first try to turn the %FO code into a function
+# note that "preygrouptype" is either "prey_simple_deerspp" or "prey_simple_unkdeer" - the former differentiates between Odocoileus spp and the later groups all deer into "Odocoileus" / deerunkspp
+
+depositorspp = "Puma concolor"
+studyarea = "Okanogan"
+
+Pct_FO <- function(data, depositorspp, studyarea) {
+  library(dplyr)
+  library(tidyr)
+  FO <- data %>% dplyr::filter(Depositor_DNA == depositorspp, StudyArea == studyarea) %>% count(SampleID, prey_simple_deerspp) %>% group_by(SampleID) %>% mutate(n = prop.table(n)) %>% ungroup() %>%
+    pivot_wider(names_from = prey_simple_deerspp, values_from = n, names_prefix = '') %>% replace(is.na(.), 0)
+  # take the resulting table and turn it into 1's if the item was present and 0's otherwise
+  FO_bi <- FO %>% mutate_if(is.numeric, ~1 * (. > 0))
+  FO_bi <- subset (FO_bi, select = -SampleID)
+  FO_spp <- sapply(FO_bi,sum)
+  # now divide the column sums by the total number of scats (rows) to get the percent frequency of occurrence
+  FO_spp <- FO_spp/as.integer(nrow(FO_bi))
+  FO_spp <- stack(FO_spp)
+  FO_spp <- as.data.frame(FO_spp)
+  colnames(FO_spp) <- c("Pct_FO","PreyItem")
+  FO_spp <- FO_spp[c("PreyItem", "Pct_FO")]
+  FO_spp <- FO_spp %>% mutate(StudyArea = studyarea, .before = PreyItem) %>% mutate(DepositorSpp = depositorspp, .before = StudyArea)
+  assign( (paste0(sub(" .*", "", depositorspp), "_", studyarea)) , FO_spp)
+  
+}
+
+# create dataframes for each species/study area combo
+PN <- Pct_FO(data, "Puma concolor", "Northeast")
+PO <- Pct_FO(data, "Puma concolor", "Okanogan")
+CN <- Pct_FO(data, "Canis lupus", "Northeast")
+CO <- Pct_FO(data, "Canis lupus", "Okanogan")
+# combine dataframes
+FO_spp_all <- rbind(PO, CO)
+# plot
+# https://community.rstudio.com/t/help-with-making-plot-with-multiple-columns/50763/2
+ggplot(FO_spp_all, aes(DepositorSpp, Pct_FO, fill = PreyItem)) + geom_col(position = "dodge")
+
 
 #######################################
 

@@ -3,7 +3,7 @@ rm(list=ls())
 
 getwd()
 
-#### Functions
+`#### Functions
 AICc.PERMANOVA <- function(adonis.model) {
   
   # check to see if object is an adonis model...
@@ -111,7 +111,7 @@ str(data)
 
 # note that I manually added values to the "prey_simple_deerspp" and "prey_simple_unkdeer" columns in Excel to create the diets_long_PERMANOVA.csv from the diets_long.csv - code this in for future (9/7/22)
 
-# add in season and cluster/non-cluster
+# add in season, cluster/non-cluster, and carcass found/not found
 scatlog<-read.csv("Data/ScatLog_MetabarcodingSamples.csv")
 head(scatlog)
 str(scatlog)
@@ -120,6 +120,7 @@ str(scatlog)
 table(scatlog$Found_Along)
 scatlog <- scatlog %>%
   mutate(Cluster = recode(Found_Along, 'AtCluster' = 'Yes', 'AtCluster, Off-trail' = 'Yes', 'AtCluster, Road'='Yes', 'AtCluster, Trail' = 'Yes', 'Follow' = 'No', 'Off-trail' = 'No', 'Other' = 'No', 'Road' = 'No', 'Trail' = 'No'))
+with(scatlog, table(Metabarcoding_Species, Cluster))
 table(scatlog$Cluster)
 head(scatlog)
 str(scatlog)
@@ -128,8 +129,54 @@ str(scatlog)
 table(scatlog$Season)
 scatlog <- scatlog %>%
   mutate(Season = recode(Season, 'Winter' = 'Winter', 'Spring' = 'Winter', 'Summer'='Summer', 'Fall' = 'Summer'))
+with(scatlog, table(Season, Metabarcoding_Species))
 table(scatlog$Season)
+table(scatlog$Date_Sent_OSU)
 head(scatlog)
+
+# create column for carcass found/not found at cluster in the scatlog database so we know how many scats came from clusters with prey (true feeding sites) vs from clusters without prey (presumed resting sites)
+# subset the scatlog to only scats that were sent for metabarcoding analysis
+scatlog_meta <- scatlog[!(scatlog$Date_Sent_OSU == ""), ]
+# create a new column for cluster ID in the scat log
+scatlog_meta <- scatlog_meta %>% mutate(Cluster_ID = gsub('(.*)-\\w+', '\\1', Scat_ID), .after = Scat_ID)
+# read in the cluster database files
+clusters_reg <- read.csv("Data/WolfCougarClusters_Database.csv")
+clusters_winter <- read.csv("Data/Winter2020_Database.csv")
+head(clusters_reg)
+head(clusters_winter)
+dim(clusters_reg)
+dim(clusters_winter)
+# merge the two databases into one
+clusters <- dplyr::bind_rows(clusters_reg, clusters_winter)
+#assign carcass found/not found to each scat ID by cluster ID
+scatlog_meta <- merge(scatlog_meta, clusters[, c("Cluster_ID", "CarcassFound","PreySpecies_Final")], by="Cluster_ID", all.x = TRUE)
+with(scatlog_meta, table(Metabarcoding_Species, Metabarcoding_Status))
+
+# creat a second database of only wolf and cougar scats with confirmed depositor that also contain vertebrate prey
+slm_cc <- subset(scatlog_meta, Metabarcoding_Species == 'Wolf' | Metabarcoding_Species == 'Cougar')
+slm_cc <- subset(slm_cc, Metabarcoding_Status == "Pred_w_prey")
+# samples sizes for all scats with depostior confirmed regardless of prey contents
+with(scatlog_meta, table(Season, StudyArea, Metabarcoding_Species))
+# sample sizes for amplified scats with prey (subset of previous)
+with(slm_cc, table(Season, StudyArea, Metabarcoding_Species))
+
+# now calculate percent frequency of occurrence by scat sample
+FO_coug <- data %>% filter(Depositor_DNA == "Puma concolor", StudyArea == "Okanogan") %>% count(SampleID, prey_simple_deerspp) %>% group_by(SampleID) %>% mutate(n = prop.table(n)) %>% ungroup() %>%
+  pivot_wider(names_from = prey_simple_deerspp, values_from = n, names_prefix = '') %>% replace(is.na(.), 0)
+# take the resulting table and turn it into 1's if the item was present and 0's otherwise
+FO_coug_bi <- FO_coug %>% mutate_if(is.numeric, ~1 * (. > 0))
+FO_coug_bi <- subset (FO_coug_bi, select = -SampleID)
+FO_coug_spp <- sapply(FO_coug_bi,sum)
+# now divide the column sums by the total number of scats (rows) to get the percent frequency of occurrence
+FO_coug_spp <- FO_coug_spp/as.integer(nrow(FO_coug_bi))
+FO_coug_spp <- stack(FO_coug_spp)
+FO_coug_spp
+hist(FO_coug_spp)
+  
+# ok so next step is to make this into a larger table with columns for "Depositor_DNA", "StudyArea", "PreySpp", "%FO"
+# maybe make the above into a function - DepostiorSpecies, StudyArea, PreyCategoryType (ie prey_simple_deerspp or prey_simple_unkdeer)
+
+#######################################
 
 # rename the "Metabarcoding_ID" column to "SampleID" to match other database
 scatlog <- rename(scatlog, SampleID = Metabarcoding_ID)
@@ -137,6 +184,8 @@ scatlog <- rename(scatlog, SampleID = Metabarcoding_ID)
 data <- merge(data, scatlog[, c("SampleID", "Season")], by="SampleID")
 # add in the "Cluster" column from 'scatlog' to 'data'
 data <- merge(data, scatlog[, c("SampleID", "Cluster")], by="SampleID")
+# add in the "Carcass" column from 'scatlog' to 'data'
+# data <- merge(data, scatlog[, c("SampleID", "Carcass")], by="SampleID")
 head(data)
 
 # rearrange columns so "Season" and "Cluster" come after "StudyArea"
@@ -210,6 +259,13 @@ data.wide.deerspp <- cbind(deerspp.factors, deerspp.rows)
 # first, pick which dataset to work with (unkdeer or deerspp)
 data <- data.wide.unkdeer # can change to data.wide.deerspp 
 
+# set up for nmds
+ind.log <- data[,7:17] # 7:17 for unkdeer, 7:19 for deerspp
+##### ind.log<-log(forage+1) <- from Shannon's script but I think log(data+1) doesn't make sense here
+par(ask = TRUE) # set plot
+ind.nmds<-vegan::metaMDS(ind.log,"bray",k=2,autotransform = F,trymax = 1500, plot = TRUE, previous.best=TRUE, na.rm=T) # set trymax to 1000 for real run - shortened to increase processing time
+
+
 # assign variables of interest
 species<-data$Depositor_DNA
 sa<-data$StudyArea
@@ -227,16 +283,10 @@ str(data)
 # str(data)
 
 # subset as desired  (e.g. one study area, one season, etc.)
-# data.new <- subset(data, Season == "Summer") # if only looking at summer data
+# data <- subset(data, Season == "Summer") # if only looking at summer data
 # View(data.new)
 # length(data.new$SampleID)
-
-# set up for nmds
-ind.log <- data[,7:17] # 7:17 for unkdeer, 7:19 for deerspp
-##### ind.log<-log(forage+1) <- from Shannon's script but I think log(data+1) doesn't make sense here
-ind.nmds<-vegan::metaMDS(ind.log,"bray",k=2,autotransform = F,trymax = 1000, na.rm=T) # set trymax to 1000 for real run - shortened to increase processing time
-
-str(species.sa)
+str(data)
 
 # Cougar - Okanogan vs Northeast
 plot(ind.nmds, main =  "Cougar")
@@ -258,9 +308,9 @@ vegan::orditorp(ind.nmds,display="species",col="black",air=0.01)
 
 # Bear - Okanogan vs Northeast
 plot(ind.nmds, main =  "Black Bear")
-vegan::ordihull(ind.nmds,groups=(species.sa== "BlackBear Northeast"),draw="polygon",
+vegan::ordihull(ind.nmds,groups=(species.sa== "Ursus americanus Northeast"),draw="polygon",
                 col=c("tomato2"), show.groups=T,label=F)
-vegan::ordihull(ind.nmds,groups=(species.sa== "BlackBear Okanogan"),draw="polygon",
+vegan::ordihull(ind.nmds,groups=(species.sa== "Ursus americanus Okanogan"),draw="polygon",
                 col=c("skyblue2"), show.groups=T,label=F)
 vegan::orditorp(ind.nmds,display="species",col="black",air=0.01)
 

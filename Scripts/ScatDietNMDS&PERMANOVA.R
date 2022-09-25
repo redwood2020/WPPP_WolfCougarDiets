@@ -151,6 +151,7 @@ clusters <- dplyr::bind_rows(clusters_reg, clusters_winter)
 #assign carcass found/not found to each scat ID by cluster ID
 scatlog_meta <- merge(scatlog_meta, clusters[, c("Cluster_ID", "CarcassFound","PreySpecies_Final")], by="Cluster_ID", all.x = TRUE)
 with(scatlog_meta, table(Metabarcoding_Species, Metabarcoding_Status))
+with(scatlog_meta, table(CarcassFound, Cluster, Metabarcoding_Species))
 
 # creat a second database of only wolf and cougar scats with confirmed depositor that also contain vertebrate prey
 slm_cc <- subset(scatlog_meta, Metabarcoding_Species == 'Wolf' | Metabarcoding_Species == 'Cougar')
@@ -177,14 +178,97 @@ FO_coug_spp
 # first try to turn the %FO code into a function
 # note that "preygrouptype" is either "prey_simple_deerspp" or "prey_simple_unkdeer" - the former differentiates between Odocoileus spp and the later groups all deer into "Odocoileus" / deerunkspp
 
+# test criteria
 depositorspp = "Puma concolor"
 studyarea = "Okanogan"
+season = "Summer"
+  
 
-Pct_FO <- function(data, depositorspp, studyarea) {
+# rename "Metabarcoding_ID" column in the scatlog_meta file to "Sample_ID to match the corresponding column in the "data" file
+slm_cc <- rename(slm_cc, SampleID = Metabarcoding_ID)
+# add a column for season to the "data" file by pulling from the "slm_cc" file
+data <- merge(data, slm_cc[, c("SampleID", "Season", "Cluster")], by.x = "SampleID")
+# rearrage column order so "Season" comes after "StudyArea"
+col_order <- c("SampleID", "StudyArea", "Season", "Cluster", "Depositor_Field", "Depositor_DNA", "diet_item", "prey_item", "prey_simple_deerspp", "prey_simple_unkdeer")
+data <- data[, col_order]
+
+# attempt to reassign "deerunkspp" to either "muledeer" or "whitetaileddeer" in the "prey_simple_deerspp" column of the "data" dataframe - assign proportionally within species, study area, and season
+## first calculate proportions of MD and WTD species within each group
+MD <- data %>% group_by(Depositor_DNA, StudyArea, Season) %>% summarise( priv_perc = sum(prey_simple_deerspp == "muledeer", na.rm=T) / sum(prey_simple_deerspp == "whitetaileddeer" | prey_simple_deerspp == "muledeer", na.rm=T) )
+
+WTD <- data %>% group_by(Depositor_DNA, StudyArea, Season) %>% summarise( priv_perc = sum(prey_simple_deerspp == "whitetaileddeer", na.rm=T) / sum(prey_simple_deerspp == "whitetaileddeer" | prey_simple_deerspp == "muledeer", na.rm=T) )
+
+# create a new column only to indicate rows where "prey_simple_deerspp" = "deerunkspp" and automatically set to "deerunkspp" and NA otherwise
+data <- data %>% mutate(Status = case_when(
+  prey_simple_deerspp == "deerunkspp" ~ "deerunkspp",    prey_simple_deerspp != "deerunkspp" ~ "unknown"
+))
+head(data)
+
+# now select your carnivore/studyarea/season combo
+carnivore = "Canis lupus"
+studyarea = "Northeast"
+season = "Winter"
+
+pct_d <- WTD[WTD$Depositor_DNA == carnivore & WTD$StudyArea == studyarea & WTD$Season == season, 4]
+as.numeric(pct_d)
+1-pct_d
+
+# get number of values of "deerunkspp" in Status, assign n
+nd <- table(data$Status)[1] 
+# create a list of random binary variables where pct_d represents the proportion of white-taileddeer, and 1-pct_d represent the number of mule deer
+WTD
+data$random_prop_deer <- data[ , 'random_prop_deer'] <- NA
+nd_names <- c()
+head(data)
+nd_names <- sample(c("whitetaileddeer", "muledeer"),
+       size = nd, 
+       prob = c(pct_d, (1-pct_d)), replace = TRUE)
+
+# now create a new column called "rand_prop_deer" that fills in all the "deerunkspp" in the "preys_simple_deerspp" column with either "whitetaileddeer" or "muledeer" based on proportion of other known deer for that carnivore-studyarea-season group 
+deerloop <- function(carnivore, studyarea, season) { 
+  WTD <- data %>% group_by(Depositor_DNA, StudyArea, Season) %>%   
+    summarise( priv_perc = sum(prey_simple_deerspp == "whitetaileddeer", na.rm=T) / sum(prey_simple_deerspp == "whitetaileddeer" | prey_simple_deerspp == "muledeer", na.rm=T) )
+  pct_d <- WTD[WTD$Depositor_DNA == carnivore & WTD$StudyArea == studyarea & WTD$Season == season, 4]
+  data_sub <- filter(data, Depositor_DNA == carnivore, StudyArea == studyarea, Season == season)
+
+  for (i in 1:length(data_sub$Status)) {
+  nd_names[i] <- sample(c("whitetaileddeer", "muledeer"),
+                     size = length(data_sub$Status[i]), 
+                     prob = c(pct_d, (1-pct_d)), replace = TRUE)
+  data_sub$rand_prop_deer[i]<-ifelse(data_sub$Status[i] == "deerunkspp",nd_names[i], data_sub$prey_simple_deerspp[i])
+  }
+  return(data_sub)
+}
+
+out_CN_W <- deerloop(carnivore = "Canis lupus", studyarea = "Northeast", season = "Winter")
+# check that it filtered correctly
+with(out, table(StudyArea, Season, Depositor_DNA))
+
+# ok now use the function to generate outputs for each  of the eight groups (carnivore, studyarea, season) and then rowbind to merge
+# wolves
+out_CN_S <- deerloop(carnivore = "Canis lupus", studyarea = "Northeast", season = "Summer")
+out_CN_W <- deerloop(carnivore = "Canis lupus", studyarea = "Northeast", season = "Winter")
+out_CO_S <- deerloop(carnivore = "Canis lupus", studyarea = "Okanogan", season = "Summer")
+out_CO_W <- deerloop(carnivore = "Canis lupus", studyarea = "Okanogan", season = "Winter")
+# cougars
+out_PN_S <- deerloop(carnivore = "Puma concolor", studyarea = "Northeast", season = "Summer")
+out_PN_W <- deerloop(carnivore = "Puma concolor", studyarea = "Northeast", season = "Winter")
+out_PO_S <- deerloop(carnivore = "Puma concolor", studyarea = "Okanogan", season = "Summer")
+out_PO_W <- deerloop(carnivore = "Puma concolor", studyarea = "Okanogan", season = "Winter")
+
+# now combine into a new dataframe
+data_new <- rbind(out_CN_S, out_CN_W, out_CO_S, out_CO_W, out_PN_S, out_PN_W, out_PO_S, out_PO_W)
+
+data <- data_new #reassign to "data" because I'm too lazy to change the varible in the following code
+head(data)
+
+
+# create percent frequency of occurrence (Pct_FO) function
+Pct_FO <- function(data, depositorspp, studyarea, season) {
   library(dplyr)
   library(tidyr)
-  FO <- data %>% dplyr::filter(Depositor_DNA == depositorspp, StudyArea == studyarea) %>% count(SampleID, prey_simple_deerspp) %>% group_by(SampleID) %>% mutate(n = prop.table(n)) %>% ungroup() %>%
-    pivot_wider(names_from = prey_simple_deerspp, values_from = n, names_prefix = '') %>% replace(is.na(.), 0)
+  FO <- data %>% dplyr::filter(Depositor_DNA == depositorspp, StudyArea == studyarea, Season == season) %>% count(SampleID, rand_prop_deer) %>% group_by(SampleID) %>% mutate(n = prop.table(n)) %>% ungroup() %>%
+    pivot_wider(names_from = rand_prop_deer, values_from = n, names_prefix = '') %>% replace(is.na(.), 0)
   # take the resulting table and turn it into 1's if the item was present and 0's otherwise
   FO_bi <- FO %>% mutate_if(is.numeric, ~1 * (. > 0))
   FO_bi <- subset (FO_bi, select = -SampleID)
@@ -195,21 +279,106 @@ Pct_FO <- function(data, depositorspp, studyarea) {
   FO_spp <- as.data.frame(FO_spp)
   colnames(FO_spp) <- c("Pct_FO","PreyItem")
   FO_spp <- FO_spp[c("PreyItem", "Pct_FO")]
-  FO_spp <- FO_spp %>% mutate(StudyArea = studyarea, .before = PreyItem) %>% mutate(DepositorSpp = depositorspp, .before = StudyArea)
-  assign( (paste0(sub(" .*", "", depositorspp), "_", studyarea)) , FO_spp)
+  FO_spp <- FO_spp %>% mutate(StudyArea = studyarea, .before = PreyItem) %>% mutate(DepositorSpp = depositorspp, .before = StudyArea) %>% mutate(Season = season, .after = StudyArea)
+  assign( (paste0(sub(" .*", "", depositorspp), "_", studyarea, "_", season)) , FO_spp)
   
 }
 
 # create dataframes for each species/study area combo
+
+# cougars / Puma concolor
+PN_S <- Pct_FO(data, "Puma concolor", "Northeast", "Summer")
+PN_W <- Pct_FO(data, "Puma concolor", "Northeast", "Winter")
+PO_S <- Pct_FO(data, "Puma concolor", "Okanogan", "Summer")
+PO_W <- Pct_FO(data, "Puma concolor", "Okanogan", "Winter")
+
+# wolves / Canis lupus
+CN_S <- Pct_FO(data, "Canis lupus", "Northeast", "Summer")
+CN_W <- Pct_FO(data, "Canis lupus", "Northeast", "Winter")
+CO_S <- Pct_FO(data, "Canis lupus", "Okanogan", "Summer")
+CO_W <- Pct_FO(data, "Canis lupus", "Okanogan", "Winter")
+
 PN <- Pct_FO(data, "Puma concolor", "Northeast")
 PO <- Pct_FO(data, "Puma concolor", "Okanogan")
 CN <- Pct_FO(data, "Canis lupus", "Northeast")
 CO <- Pct_FO(data, "Canis lupus", "Okanogan")
 # combine dataframes
-FO_spp_all <- rbind(PO, CO)
+FO_spp_all <- rbind(PN_S, PN_W)
 # plot
 # https://community.rstudio.com/t/help-with-making-plot-with-multiple-columns/50763/2
+# by depositor species
 ggplot(FO_spp_all, aes(DepositorSpp, Pct_FO, fill = PreyItem)) + geom_col(position = "dodge")
+
+str(FO_spp_all$PreyItem)
+# order legend prey items (no more 'deerunkspp')
+FO_spp_all$PreyItem <- factor(FO_spp_all$PreyItem, levels=c('bird', 'elk', 'carnivore', 'lagomorph', 'med_mammal', 'moose', 'muledeer', 'small_mammal', 'whitetaileddeer'))
+
+# combine dataframes
+FO_spp_all <- rbind(CO_S, CO_W)
+# by season
+p <- ggplot(FO_spp_all, aes(Season, Pct_FO, fill = PreyItem, label = PreyItem)) + geom_col(position = position_dodge2(width = 0.9, preserve = "single")) + scale_fill_manual(values = c("bird" = "aquamarine3", "elk" = "brown", "carnivore" = "purple","lagomorph" = "darkseagreen","med_mammal" = "chocolate1", "moose" = "burlywood4", "muledeer" = "deepskyblue", "small_mammal" = "chartreuse2", "whitetaileddeer" = "darkgreen", "livestock" = "black")) + geom_text(position = position_dodge2(width = 0.9, preserve = "single"), angle = 90, vjust=0.35, hjust= -0.05)
+#change plot title ("Cougar - Northeast") based on selected FO_spp_all combined dataframes
+p4 <- p + scale_y_continuous(limits = c(0, 1.5)) + ggtitle("Wolf - Okanogan") + theme_bw() + theme(plot.title=element_text(hjust=0.5)) + ylab("% Frequency of Occurrence") +  guides(fill=guide_legend(title="Prey Item"))
+
+# create a multiplot with gridarrange()
+# https://cran.r-project.org/web/packages/egg/vignettes/Ecosystem.html
+library(gridExtra)
+grid.arrange(p1, p2, p3, p4, nrow = 2, ncol = 2)
+
+# how to create multiple plots in r
+# https://www.datamentor.io/r-programming/subplot/
+# https://stackoverflow.com/questions/1249548/side-by-side-plots-with-ggplot2
+# how to add unused levels to a legend
+# https://stackoverflow.com/questions/40313680/r-is-there-a-way-to-add-unused-data-levels-in-a-ggplot-legend
+# fill color options
+# https://r-graph-gallery.com/img/graph/42-colors-names.png
+
+?ggplot
+
+# create Pianka's index of niche overlap example
+# package 'pgirmess'
+# https://rdrr.io/cran/pgirmess/man/piankabioboot.html
+library(pgirmess)
+data(preybiom)
+attach(preybiom)
+jackal<-preybiom[site=="Y" & sp=="C",5:6]
+genet<-preybiom[site=="Y" & sp=="G",5:6]
+
+piankabio(jackal,genet)
+piankabioboot(jackal, genet, B = 1000, probs = c(0.025, 0.975))
+
+# calculate pianka's index for our data (quick and dirty version)
+g1 <- PO_W[,4:5]
+g2 <- CO_W[,4:5]
+# add rows to dataframes to match categories in the PreyItem
+g1<-rbind(g1, data.frame(PreyItem = c("bird", "elk", "lagomorph", "med_mammal", "moose", "small_mammal", "other"), Pct_FO = c(0,0,0,0,0,0,0)))
+g2<-rbind(g2, data.frame(PreyItem = c("bird", "elk", "carnivore", "lagomorph", "med_mammal", "moose", "small_mammal","whitetaileddeer"), Pct_FO = c(0,0,0,0,0,0,0,0)))
+# order prey items
+# order legend prey items
+g2$PreyItem <- factor(g2$PreyItem, levels=c('bird', 'elk', 'carnivore', 'deerunkspp', 'lagomorph', 'med_mammal', 'moose', 'muledeer', 'small_mammal', 'whitetaileddeer','livestock','other'))
+# reorder dataframe
+g2 <- with(g2, g2[order(PreyItem),])
+# set factor levels 
+g1$PreyItem <- factor(g1$PreyItem, levels=c('bird', 'elk', 'carnivore', 'deerunkspp', 'lagomorph', 'med_mammal', 'moose', 'muledeer', 'small_mammal', 'whitetaileddeer','livestock','other'))
+g1 <- with(g1, g1[order(PreyItem),])
+
+piankabio(g1, g2)
+piankabioboot(coug_ne_summ, coug_ne_wint, B = 1000, probs = c(0.025, 0.975))
+
+# now calculate Shannon's index
+data(preybiom)
+shannonbio(preybiom[,5:6])
+shannonbio(g1)
+
+#######################################
+# Sex and Age Data
+#######################################
+# now let's try to work with the sex and age data for important species groups, which are:
+# mule deer for wolves and cougars in the Okanogan
+# white-tailed deer for wolves and cougars in the Northeast
+# moose for wolves (and possibly cougars) in the Northeast
+
+
 
 
 #######################################

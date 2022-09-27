@@ -101,7 +101,9 @@ AICc.PERMANOVA2 <- function(adonis2.model) {
   
 }
 
-#####
+################################
+# Species Breakdowns - Scat Data
+################################
 
 library(tidyverse)
 
@@ -149,7 +151,7 @@ dim(clusters_winter)
 # merge the two databases into one
 clusters <- dplyr::bind_rows(clusters_reg, clusters_winter)
 #assign carcass found/not found to each scat ID by cluster ID
-scatlog_meta <- merge(scatlog_meta, clusters[, c("Cluster_ID", "CarcassFound","PreySpecies_Final")], by="Cluster_ID", all.x = TRUE)
+scatlog_meta <- merge(scatlog_meta, clusters[, c("Cluster_ID", "CarcassFound","PreySpecies_Final", "Sex_Final", "AgeClassDeer_Final", "AgeEstimate_Final")], by="Cluster_ID", all.x = TRUE)
 with(scatlog_meta, table(Metabarcoding_Species, Metabarcoding_Status))
 with(scatlog_meta, table(CarcassFound, Cluster, Metabarcoding_Species))
 
@@ -242,7 +244,7 @@ deerloop <- function(carnivore, studyarea, season) {
 
 out_CN_W <- deerloop(carnivore = "Canis lupus", studyarea = "Northeast", season = "Winter")
 # check that it filtered correctly
-with(out, table(StudyArea, Season, Depositor_DNA))
+with(out_CN_W, table(StudyArea, Season, Depositor_DNA))
 
 # ok now use the function to generate outputs for each  of the eight groups (carnivore, studyarea, season) and then rowbind to merge
 # wolves
@@ -260,8 +262,16 @@ out_PO_W <- deerloop(carnivore = "Puma concolor", studyarea = "Okanogan", season
 data_new <- rbind(out_CN_S, out_CN_W, out_CO_S, out_CO_W, out_PN_S, out_PN_W, out_PO_S, out_PO_W)
 
 data <- data_new #reassign to "data" because I'm too lazy to change the varible in the following code
-head(data)
+head(data_new)
 
+# try to add a column on the end for proportion of scat (so single items have a value of 1, two prey items would each be 0.5, etc.)
+data_test <- data_new %>% group_by(SampleID) %>% mutate(ScatProp = 1 ) %>% ungroup() # 1/n() for proportion
+head(data_test)
+str(data_test)
+
+shan_filter <- function(carnivore, studyarea, season) {data_test %>% filter(Depositor_DNA == carnivore, StudyArea == studyarea, Season == season)}
+shan_filter("Puma concolor", "Northeast", "Summer")
+data_test[,13:14]
 
 # create percent frequency of occurrence (Pct_FO) function
 Pct_FO <- function(data, depositorspp, studyarea, season) {
@@ -367,20 +377,83 @@ piankabioboot(coug_ne_summ, coug_ne_wint, B = 1000, probs = c(0.025, 0.975))
 
 # now calculate Shannon's index
 data(preybiom)
+head(preybiom)
+str(preybiom)
 shannonbio(preybiom[,5:6])
-shannonbio(g1)
 
-#######################################
-# Sex and Age Data
-#######################################
-# now let's try to work with the sex and age data for important species groups, which are:
+# calculate shannon's for our data using the shan_filter function created earlier
+dat <- shan_filter("Canis lupus", "Okanogan", "Winter")
+dat <- as.data.frame(dat[,13:14])
+head(dat)
+str(dat)
+shannonbio(dat)
+
+# test bootstrapping
+data(preybiom) 
+myboot<-shannonbioboot(preybiom[,5:6],B=100) 
+library(boot) 
+boot.ci(myboot, index=1,type=c("norm","basic","perc")) # confidence intervals for H' 
+boot.ci(myboot, index=2,type=c("norm","basic","perc")) # confidence intervals for J'
+
+# now calculate the bootstrapped estimate in the difference between two groups
+# chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/pgirmess/pgirmess.pdf
+coug_ne_summ <- as.data.frame(shan_filter("Puma concolor", "Northeast", "Summer"))
+wolf_ne_summ <- as.data.frame(shan_filter("Canis lupus", "Northeast", "Summer"))
+coug_ne_summ <- coug_ne_summ[,13:14]
+wolf_ne_summ <- wolf_ne_summ[,13:14]
+head(coug_ne_summ)
+head(wolf_ne_summ)
+
+shannonbioboot(coug_ne_summ, B = 100)
+difshannonbio(coug_ne_summ, wolf_ne_summ, R=1000, probs = c(0.025, 0.975))
+
+mydata <- shannonbioboot(dat, B = 100)
+library(boot)
+boot.ci(myboot, index=1,type=c("norm","basic","perc")) # confidence intervals for H' 
+boot.ci(myboot, index=2,type=c("norm","basic","perc")) # confidence intervals for J'
+
+# function "shannon"
+x<-c(0.1,0.5,0.2,0.1,0.1) 
+sum(x) 
+shannon(x) 
+
+x<-rpois(10,6) 
+shannon(x, base=exp(1))
+
+#test shannon's on my data - just need each resource category and the proportion
+shan_dat <- CO_W[,5]
+shan_dat <- as.data.frame(shan_dat)
+shan_dat <- as.numeric(unlist(shan_dat))
+class(shan_dat)
+shannon(shan_dat, base=exp(2))
+
+########################################
+# Sex and Age Breakdowns - Cluster Data
+########################################
+# now let's try to work with the sex and age data for important species groups from the **cluster** data, which are:
 # mule deer for wolves and cougars in the Okanogan
 # white-tailed deer for wolves and cougars in the Northeast
 # moose for wolves (and possibly cougars) in the Northeast
 
+# look at the column headings from the cluster data
+head(clusters)
 
+# subset to the specific studyarea-prey group we are interested in
+clust_prey <- clusters %>% 
+  filter(StudySite == "Methow") %>%  # Methow or Northest
+  # filter(ClusterType == "Cougar") %>%
+  filter(PreySpecies_Final == "muledeer") 
+  # filter(Sex_Final == "Male" | Sex_Final == "Female") %>% 
+  # filter(AgeClassDeer_Simple != "unknown")
 
+head(clust_prey)
+with(clust_prey, table(AgeClassDeer_Simple, Sex_Final, ClusterType))
 
+with(clust_prey, table(Sex_Final, ClusterType))
+with(clust_prey, table(AgeClassDeer_Simple, Sex_Final, ClusterType))
+table(clust_prey, Sex_Final)
+#######################################
+## Start from here on Tuesday to make NMDS plots
 #######################################
 
 # rename the "Metabarcoding_ID" column to "SampleID" to match other database

@@ -155,7 +155,7 @@ scatlog_meta <- merge(scatlog_meta, clusters[, c("Cluster_ID", "CarcassFound","P
 with(scatlog_meta, table(Metabarcoding_Species, Metabarcoding_Status))
 with(scatlog_meta, table(CarcassFound, Cluster, Metabarcoding_Species))
 
-# creat a second database of only wolf and cougar scats with confirmed depositor that also contain vertebrate prey
+# create a second database of only wolf and cougar scats with confirmed depositor that also contain vertebrate prey
 slm_cc <- subset(scatlog_meta, Metabarcoding_Species == 'Wolf' | Metabarcoding_Species == 'Cougar')
 slm_cc <- subset(slm_cc, Metabarcoding_Status == "Pred_w_prey")
 # samples sizes for all scats with depostior confirmed regardless of prey contents
@@ -164,8 +164,48 @@ with(scatlog_meta, table(Season, StudyArea, Metabarcoding_Species))
 with(slm_cc, table(Season, StudyArea, Metabarcoding_Species))
 
 # now calculate percent frequency of occurrence by scat sample
-FO_coug <- data %>% filter(Depositor_DNA == "Puma concolor", StudyArea == "Okanogan") %>% count(SampleID, prey_simple_deerspp) %>% group_by(SampleID) %>% mutate(n = prop.table(n)) %>% ungroup() %>%
-  pivot_wider(names_from = prey_simple_deerspp, values_from = n, names_prefix = '') %>% replace(is.na(.), 0)
+depositor = "Puma concolor"
+studyarea = "Northeast"
+season = "Summer"
+
+table(data_new$rand_prop_deer)
+
+FO_funct <- function(data, depositor, studyarea, season) {
+  data_new %>%
+    # this code ensures that all species categories are included in all dataframes even if values for some species are 0 for all samples
+    # commenting out this code results in dataframes that only have columns for species detected for the species/studyarea/season group
+    # mutate(
+    #   rand_prop_deer = fct_relevel(
+    #     rand_prop_deer,
+    #     "muledeer",
+    #     "whitetaileddeer",
+    #     "moose",
+    #     "elk",
+    #     "bird",
+    #     "carnivore",
+    #     "lagomorph",
+    #     "med_mammal",
+    #     "small_mammal",
+    #     "other",
+    #     "livestock"
+    #   )
+    # ) %>%
+    filter(Depositor_DNA == depositor,
+           StudyArea == studyarea,
+           Season == season) %>%
+    count(SampleID, rand_prop_deer) %>%
+    group_by(SampleID) %>%
+    mutate(n = prop.table(n)) %>%
+    ungroup() %>%
+    pivot_wider(
+      names_from = rand_prop_deer,
+      values_from = n,
+      names_prefix = ''
+    ) %>%
+    replace(is.na(.), 0)
+}
+  
+FO_funct(data, "Puma concolor", "Northeast", "Summer")
 # take the resulting table and turn it into 1's if the item was present and 0's otherwise
 FO_coug_bi <- FO_coug %>% mutate_if(is.numeric, ~1 * (. > 0))
 FO_coug_bi <- subset (FO_coug_bi, select = -SampleID)
@@ -261,6 +301,56 @@ out_PO_W <- deerloop(carnivore = "Puma concolor", studyarea = "Okanogan", season
 # now combine into a new dataframe
 data_new <- rbind(out_CN_S, out_CN_W, out_CO_S, out_CO_W, out_PN_S, out_PN_W, out_PO_S, out_PO_W)
 
+# use the FO_funct from earlier to subset data and create columns by species group
+# NOTE THAT "datanew" DATAFRAME IS GENERATED LATER - NEED TO REORDER BUT DIDN'T BOTHER HERE
+FO_PN_S <- FO_funct(data_new, "Puma concolor", "Northeast", "Summer")
+FO_PN_W <- FO_funct(data_new, "Puma concolor", "Northeast", "Winter")
+FO_PO_S <- FO_funct(data_new, "Puma concolor", "Okanogan", "Summer")
+FO_PO_W <- FO_funct(data_new, "Puma concolor", "Okanogan", "Winter")
+FO_CN_S <- FO_funct(data_new, "Canis lupus", "Northeast", "Summer")
+FO_CN_W <- FO_funct(data_new, "Canis lupus", "Northeast", "Winter")
+FO_CO_S <- FO_funct(data_new, "Canis lupus", "Okanogan", "Summer")
+FO_CO_W <- FO_funct(data_new, "Canis lupus", "Okanogan", "Winter")
+
+# now use this formatted data to calculate the bootstrapped Pianka's index for each studyarea/season pair
+# https://search.r-project.org/CRAN/refmans/spaa/html/niche.overlap.boot.html
+
+library(spaa)
+
+# example of niche.overlap.boot from R documentation
+data(datasample)
+
+niche.overlap.boot(datasample[,1:4], method = "pianka")
+head(datasample[,1:4])
+
+# example of niche.overlap.boot.pair from R documentation
+niche.overlap.boot.pair(datasample[,1],datasample[,2], method = "levins")
+
+# now for our data
+
+niche.overlap.boot(FO_PN_S[,2], method="pianka", times = 100, quant = c(0.025, 0.975))
+
+# small_mammal
+nichedata1 <- FO_PN_S$whitetaileddeer # Cougar (Puma concolor) Northeast Summer
+nichedata2 <- FO_CN_S$whitetaileddeer # Wolf (Canis lupus) Northeast Summer
+niche.overlap.boot.pair(nichedata1,nichedata2, method = "pianka")
+
+###########################
+# STARTING POINT FOR THURSDAY
+###########################
+# https://stackoverflow.com/questions/32940822/bootstrapping-data-frame-columns-independently-in-r
+# replicate(1000, sapply(example.df, function(x) 
+metric.function(sample(x, replace = TRUE))))
+
+# Ok what you need to do is create your species/studyarea/season dataframes (with rand_prop_deer filled out) and merge into data_new. **** Save this as an output file so you don't  have to keep randomly selecting the deer **** Or consider re-running the random deer selection as part of the bootstrapping, but I think we don't want to do this because then we're bootstrapping different datasets essentially ####
+# Then replicate the full dataset size (all rows) with replacement however many times ) eg 1000 - make sure to turn that column into a factor first so all columns are retained even if there are zero detections of that species in that data subset
+# then get proportion categories ***of all datasets*** to prepare to calculate pianka's index - do this for wolves and cougars within a studyarea/season
+# calculate Pianka's index for all the bootstrapped datasets - rows are prey species categories and columns are either wolf or cougar
+# Find mean and 95% confidence interval of the set of pianka's indices
+# link below explains how to calculate a mean and CI from a simple vector
+# https://stackoverflow.com/questions/48612153/how-to-calculate-confidence-intervals-for-a-vector
+
+###########################
 data <- data_new #reassign to "data" because I'm too lazy to change the varible in the following code
 head(data_new)
 
@@ -319,21 +409,43 @@ FO_spp_all <- rbind(PN_S, PN_W)
 # by depositor species
 ggplot(FO_spp_all, aes(DepositorSpp, Pct_FO, fill = PreyItem)) + geom_col(position = "dodge")
 
-str(FO_spp_all$PreyItem)
-# order legend prey items (no more 'deerunkspp')
-FO_spp_all$PreyItem <- factor(FO_spp_all$PreyItem, levels=c('bird', 'elk', 'carnivore', 'lagomorph', 'med_mammal', 'moose', 'muledeer', 'small_mammal', 'whitetaileddeer'))
-
 # combine dataframes
 FO_spp_all <- rbind(CO_S, CO_W)
+
+# set factor legend order for PreyItem so they come out the same
+str(FO_spp_all$PreyItem)
+FO_spp_all$PreyItem <- factor(FO_spp_all$PreyItem, levels = c("muledeer","whitetaileddeer","moose","elk","bird","carnivore","lagomorph","med_mammal", "small_mammal","other","livestock"))
 # by season
-p <- ggplot(FO_spp_all, aes(Season, Pct_FO, fill = PreyItem, label = PreyItem)) + geom_col(position = position_dodge2(width = 0.9, preserve = "single")) + scale_fill_manual(values = c("bird" = "aquamarine3", "elk" = "brown", "carnivore" = "purple","lagomorph" = "darkseagreen","med_mammal" = "chocolate1", "moose" = "burlywood4", "muledeer" = "deepskyblue", "small_mammal" = "chartreuse2", "whitetaileddeer" = "darkgreen", "livestock" = "black")) + geom_text(position = position_dodge2(width = 0.9, preserve = "single"), angle = 90, vjust=0.35, hjust= -0.05)
+p <- ggplot(FO_spp_all, aes(Season, Pct_FO, fill = PreyItem, label = PreyItem)) + geom_col(position = position_dodge2(width = 0.9, preserve = "single")) + scale_fill_manual(values = c("muledeer" = "chartreuse4","whitetaileddeer" = "dodgerblue", "moose" = "orangered","elk" = "orange","bird" = "slateblue2",  "carnivore" = "seagreen3","lagomorph" = "cadetblue2","med_mammal" = "hotpink2","small_mammal" = "gold", "other"= "azure3", "livestock" = "black")) 
+# + geom_text(position = position_dodge2(width = 0.9, preserve = "single"), angle = 90, vjust=0.35, hjust= -0.05)
+
 #change plot title ("Cougar - Northeast") based on selected FO_spp_all combined dataframes
-p4 <- p + scale_y_continuous(limits = c(0, 1.5)) + ggtitle("Wolf - Okanogan") + theme_bw() + theme(plot.title=element_text(hjust=0.5)) + ylab("% Frequency of Occurrence") +  guides(fill=guide_legend(title="Prey Item"))
+p4 <- p + scale_y_continuous(limits = c(0, 1.0)) + ggtitle("Wolf - Okanogan") + theme_bw() + theme(plot.title=element_text(hjust=0.5)) + ylab("% Frequency of Occurrence") + guides(fill=guide_legend(title="Prey Item"))
+p1
+p2
+p3
+p4
 
 # create a multiplot with gridarrange()
 # https://cran.r-project.org/web/packages/egg/vignettes/Ecosystem.html
 library(gridExtra)
 grid.arrange(p1, p2, p3, p4, nrow = 2, ncol = 2)
+# set up to only have one legend for the 4-panel figure
+get_legend<-function(myggplot){
+  tmp <- ggplot_gtable(ggplot_build(myggplot))
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box")
+  legend <- tmp$grobs[[leg]]
+  return(legend)
+}
+
+# p <- ggplot()
+# p2 <- ggplot(mtcars, aes(mpg, wt, col=factor(am))) + geom_point()
+legend <- get_legend(p2)
+
+
+grid.arrange(p1, p2, p3, p4, legend, 
+             layout_matrix=rbind(c(1,1,2,2,5), c(3,3,4,4,5)))
+
 
 # how to create multiple plots in r
 # https://www.datamentor.io/r-programming/subplot/
@@ -358,8 +470,8 @@ piankabio(jackal,genet)
 piankabioboot(jackal, genet, B = 1000, probs = c(0.025, 0.975))
 
 # calculate pianka's index for our data (quick and dirty version)
-g1 <- PO_W[,4:5]
-g2 <- CO_W[,4:5]
+g1 <- PN_S[,4:5]
+g2 <- CN_S[,4:5]
 # add rows to dataframes to match categories in the PreyItem
 g1<-rbind(g1, data.frame(PreyItem = c("bird", "elk", "lagomorph", "med_mammal", "moose", "small_mammal", "other"), Pct_FO = c(0,0,0,0,0,0,0)))
 g2<-rbind(g2, data.frame(PreyItem = c("bird", "elk", "carnivore", "lagomorph", "med_mammal", "moose", "small_mammal","whitetaileddeer"), Pct_FO = c(0,0,0,0,0,0,0,0)))
@@ -373,7 +485,9 @@ g1$PreyItem <- factor(g1$PreyItem, levels=c('bird', 'elk', 'carnivore', 'deerunk
 g1 <- with(g1, g1[order(PreyItem),])
 
 piankabio(g1, g2)
-piankabioboot(coug_ne_summ, coug_ne_wint, B = 1000, probs = c(0.025, 0.975))
+piankabioboot(g1, g2, B = 1000, probs = c(0.025, 0.975))
+
+
 
 # now calculate Shannon's index
 data(preybiom)
@@ -397,20 +511,20 @@ boot.ci(myboot, index=2,type=c("norm","basic","perc")) # confidence intervals fo
 
 # now calculate the bootstrapped estimate in the difference between two groups
 # chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/pgirmess/pgirmess.pdf
-coug_ne_summ <- as.data.frame(shan_filter("Puma concolor", "Northeast", "Summer"))
-wolf_ne_summ <- as.data.frame(shan_filter("Canis lupus", "Northeast", "Summer"))
-coug_ne_summ <- coug_ne_summ[,13:14]
-wolf_ne_summ <- wolf_ne_summ[,13:14]
-head(coug_ne_summ)
-head(wolf_ne_summ)
+coug_ne_wint <- as.data.frame(shan_filter("Puma concolor", "Northeast", "Winter"))
+wolf_ne_wint <- as.data.frame(shan_filter("Canis lupus", "Northeast", "Winter"))
+coug_ne_wint <- coug_ne_wint[,13:14]
+wolf_ne_wint <- wolf_ne_wint[,13:14]
+head(coug_ne_wint)
+head(wolf_ne_wint)
 
-shannonbioboot(coug_ne_summ, B = 100)
-difshannonbio(coug_ne_summ, wolf_ne_summ, R=1000, probs = c(0.025, 0.975))
+shannonbioboot(coug_ne_wint, B = 100)
+difshannonbio(coug_ne_wint, wolf_ne_summ, R=1000, probs = c(0.025, 0.975))
 
 mydata <- shannonbioboot(dat, B = 100)
 library(boot)
-boot.ci(myboot, index=1,type=c("norm","basic","perc")) # confidence intervals for H' 
-boot.ci(myboot, index=2,type=c("norm","basic","perc")) # confidence intervals for J'
+boot.ci(mydata, index=1,type=c("norm","basic","perc")) # confidence intervals for H' 
+boot.ci(mydata, index=2,type=c("norm","basic","perc")) # confidence intervals for J'
 
 # function "shannon"
 x<-c(0.1,0.5,0.2,0.1,0.1) 
@@ -455,22 +569,24 @@ table(clust_prey, Sex_Final)
 #######################################
 ## Start from here on Tuesday to make NMDS plots
 #######################################
-
+scatlog <- slm_cc
 # rename the "Metabarcoding_ID" column to "SampleID" to match other database
 scatlog <- rename(scatlog, SampleID = Metabarcoding_ID)
 # add in the "Season" column from 'scatlog' to 'data'
-data <- merge(data, scatlog[, c("SampleID", "Season")], by="SampleID")
+# data <- merge(data, scatlog[, c("SampleID", "Season")], by="SampleID")
 # add in the "Cluster" column from 'scatlog' to 'data'
-data <- merge(data, scatlog[, c("SampleID", "Cluster")], by="SampleID")
+# data <- merge(data, scatlog[, c("SampleID", "Cluster")], by="SampleID")
 # add in the "Carcass" column from 'scatlog' to 'data'
 # data <- merge(data, scatlog[, c("SampleID", "Carcass")], by="SampleID")
 head(data)
+str(data)
 
 # rearrange columns so "Season" and "Cluster" come after "StudyArea"
-col_order <- c("SampleID", "StudyArea", "Season", "Cluster", "Depositor_Field", "Depositor_DNA", "diet_item", "prey_item", "prey_simple_deerspp", "prey_simple_unkdeer")
-data.scat <- data[, col_order]
+# col_order <- c("SampleID", "StudyArea", "Season", "Cluster", "Depositor_Field", "Depositor_DNA", "diet_item", "prey_item", "prey_simple_deerspp", "prey_simple_unkdeer")
+# data.scat <- data[, col_order]
+data.scat <- data
 head(data.scat)
-table(data.scat$diet_item)
+table(data.scat$rand_prop_deer)
 
 # look at some summary tables
 with(data.scat, table(Depositor_DNA, Season, StudyArea))
@@ -487,7 +603,7 @@ View(data.wide.unkdeer)
 
 data.wide.deerspp <- data.scat %>%
   group_by(SampleID) %>%
-  pivot_wider(names_from = prey_simple_deerspp, values_from = prey_simple_deerspp)
+  pivot_wider(names_from = rand_prop_deer, values_from = rand_prop_deer)
 data.wide.deerspp <- as.data.table(data.wide.deerspp)
 
 # View(data.scat)
@@ -508,12 +624,12 @@ data.wide.unkdeer <- data.wide.unkdeer[ , .(deerunkspp = sum(deerunkspp), other 
 
 # for the "wide" prey item columns, convert NA values to 0 and non-NA values to 1, so from column 10 and up
 #deerspp (where we have muledeer, whitetaileddeer, and deerunkspp / Odocoileus spp.)
-data.wide.deerspp.factors <- data.wide.deerspp[,1:9]
-data.wide.deerspp.binary <- +!is.na(data.wide.deerspp[,10:22])
+data.wide.deerspp.factors <- data.wide.deerspp[,1:12]
+data.wide.deerspp.binary <- +!is.na(data.wide.deerspp[,13:23])
 data.wide.deerspp <- cbind(data.wide.deerspp.factors, data.wide.deerspp.binary)
 str(data.wide.deerspp)
 setDT(data.wide.deerspp)
-data.wide.deerspp <- data.wide.deerspp[ , .(deerunkspp = sum(deerunkspp), other = sum(other), fish = sum(fish), small_mammal = sum(small_mammal), whitetaileddeer = sum(whitetaileddeer), bird = sum(bird), livestock = sum(livestock), elk = sum(elk), lagomorph = sum(lagomorph), muledeer = sum(muledeer), carnivore = sum(carnivore), moose = sum(moose), med_mammal = sum(med_mammal)),  by = .(SampleID, StudyArea, Season, Cluster, Depositor_Field, Depositor_DNA)] 
+data.wide.deerspp <- data.wide.deerspp[ , .(livestock = sum(livestock), whitetaileddeer = sum(whitetaileddeer), moose = sum(moose), lagomorph = sum(lagomorph), carnivore = sum(carnivore), bird = sum(bird), med_mammal = sum(med_mammal), elk = sum(elk), muledeer = sum(muledeer), small_mammal = sum(small_mammal), other = sum(other)),  by = .(SampleID, StudyArea, Season, Cluster, Depositor_Field, Depositor_DNA)] 
 
 # now convert prey 0/1 values to fractions of the total (so that a scat with both deer and coyote will be 0.5 deer, 0.5 coyote)
 #unkdeer
@@ -525,10 +641,29 @@ data.wide.unkdeer <- cbind(unkdeer.factors, unkdeer.rows)
 
 #deerspp
 deerspp.factors <- data.wide.deerspp[,1:6]
-deerspp.rows <- data.wide.deerspp[,7:19] # we dropped the columsn for diet_item, prey_item, and prey_simple_unkdeer so we reduce the column call by a value of 3
+deerspp.rows <- data.wide.deerspp[,7:17] # we dropped the columsn for diet_item, prey_item, and prey_simple_unkdeer so we reduce the column call by a value of 3
 deerspp.rows <- deerspp.rows/rowSums(deerspp.rows)
 data.wide.deerspp <- cbind(deerspp.factors, deerspp.rows)
 # View(data.wide.deerspp)
+
+# Calculate bootstrapped pianka's index
+# https://search.r-project.org/CRAN/refmans/spaa/html/niche.overlap.boot.html
+library(spaa)
+niche.overlap.boot(mat, method = c("pianka", "schoener", "petraitis",  
+                                   "czech", "morisita", "levins"), times = 999, quant = c(0.025, 0.975))
+# Example 1
+data(datasample)
+niche.overlap.boot(datasample[,1:4], method = "pianka")
+niche.overlap.boot(datasample[,1:4], method = "schoener")
+niche.overlap.boot(datasample[,1:4], method = "czech") 
+niche.overlap.boot(datasample[,1:4], method = "levins")
+# Example 2
+### niche.overlap.boot.pair() example
+data(datasample)
+niche.overlap.boot.pair(datasample[,1],datasample[,2], method = "levins")
+# EcosimR
+install.packages("EcoSimR")
+
 
 ############################################################
 # SCAT DATA NOW READY FOR NMDS PLOTS
@@ -536,20 +671,89 @@ data.wide.deerspp <- cbind(deerspp.factors, deerspp.rows)
 
 # first, pick which dataset to work with (unkdeer or deerspp)
 data <- data.wide.unkdeer # can change to data.wide.deerspp 
+data <- data.wide.deerspp
+head(data)
 
+
+# NMDS Plot extras in R: Envfit
+# https://jkzorz.github.io/2020/04/04/NMDS-extras.html
 # set up for nmds
-ind.log <- data[,7:17] # 7:17 for unkdeer, 7:19 for deerspp
+categ <- data[,2:6]
+ind.log <- data[,7:17] # 7:17 for unkdeer and deerspp
 ##### ind.log<-log(forage+1) <- from Shannon's script but I think log(data+1) doesn't make sense here
-par(ask = TRUE) # set plot
-ind.nmds<-vegan::metaMDS(ind.log,"bray",k=2,autotransform = F,trymax = 1500, plot = TRUE, previous.best=TRUE, na.rm=T) # set trymax to 1000 for real run - shortened to increase processing time
 
+#convert com to a matrix
+m_ind.log = as.matrix(ind.log)
+
+
+par(ask = FALSE) # set plot
+# https://rdrr.io/rforge/vegan/man/metaMDS.html
+ind.nmds<-vegan::metaMDS(m_ind.log,"bray",k=2, autotransform = F,trymax = 100, plot = TRUE, trace= TRUE, previous.best=TRUE, na.rm=T) # set trymax to 1000 for real run - shortened to increase processing time
+
+# test plot
+plot(ind.nmds)
+plot(prey_spp)
+
+# creating nice NMDS plots in R
+# https://jkzorz.github.io/2019/06/06/NMDS.html
+# https://jkzorz.github.io/2019/06/06/NMDS.html
+#extract NMDS scores (x and y coordinates)
+library(vegan)
+
+# data.scores has MDS1 and MSD2 column headers
+data.scores = as.data.frame(scores(ind.nmds$points))
+data.scores$Depositor_DNA <- data$Depositor_DNA
+data.scores$Season <- data$Season
+data.scores$StudyArea <- data$StudyArea
+head(data.scores)
+
+
+# simple plot
+hh <- ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = Depositor_DNA), size = 3, alpha = 0.5) + 
+  scale_colour_manual(values = c("orange", "steelblue")) + 
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) +
+  labs(colour = "Depositor Spp.")
+hh
+
+hh + geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), data = prey_spp_coord, size =1, alpha = 0.5, colour = "grey30") +
+  geom_text(data = prey_spp_coord, aes(x = NMDS1, y = NMDS2+0.04),    label = row.names(prey_spp_coord), colour = "navy", fontface = "bold")
+
+prey_spp <- envfit(ind.nmds, ind.log, permutations = 999, na.rm = TRUE)
+prey_coord_fact = as.data.frame(scores(prey_spp, "factors")) * ordiArrowMul(prey_spp)
+prey_spp_coord = as.data.frame(scores(prey_spp, "vectors")) * ordiArrowMul(prey_spp)
+str(data.scores)
+str(prey_spp_coord)
+
+# plot
+gg <- ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = Depositor_DNA), size = 3, alpha = 0.5) + 
+  scale_colour_manual(values = c("orange", "steelblue"))  + 
+  geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), data = prey_spp_coord, size =1, alpha = 0.5, colour = "grey30") +
+  geom_point(data = prey_spp_coord, aes(x = NMDS1, y = NMDS2), 
+             shape = "diamond", size = 4, alpha = 0.6, colour = "navy") +
+  geom_text(data = prey_spp_coord, aes(x = NMDS1, y = NMDS2+0.04),    label = row.names(prey_spp_coord), colour = "navy", fontface = "bold") +
+  geom_text(data = prey_spp_coord, aes(x = NMDS1, y = NMDS2), colour = "grey30", fontface = "bold", label = row.names(prey_spp_coord)) +
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) + 
+  labs(colour = "Depositor Species")
+
+gg
 
 # assign variables of interest
 species<-data$Depositor_DNA
 sa<-data$StudyArea
 cluster<-data$Cluster
 season<-data$Season
-species.sa<-paste(data$Depositor_DNA, data$StudyArea)
+species.sa.season<-paste(data$Depositor_DNA, data$StudyArea, data$Season)
+sa.season<-paste(data$StudyArea, data$Season)
 
 # look at data structure and assign class
 str(data)
@@ -566,28 +770,113 @@ str(data)
 # length(data.new$SampleID)
 str(data)
 
-# Cougar - Okanogan vs Northeast
-plot(ind.nmds, main =  "Cougar")
-vegan::ordihull(ind.nmds,groups=(species.sa== "Puma concolor Northeast"),draw="polygon",
-                col=c("tomato2"), show.groups=T,label=F)
-vegan::ordihull(ind.nmds,groups=(species.sa== "Puma concolor Okanogan"),draw="polygon",
-                col=c("skyblue2"), show.groups=T,label=F)
-vegan::orditorp(ind.nmds,display="species",col="black",air=0.001)
-with(data, legend("bottomleft", legend = c("Okanogan","Northeast"), bty = "n",
+hh <- ggplot(data = data.scores, aes(x = MDS1, y = MDS2)) + 
+  geom_point(data = data.scores, aes(colour = Depositor_DNA), size = 3, alpha = 0.5) + 
+  scale_colour_manual(values = c("orange", "steelblue")) + 
+  theme(axis.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        panel.background = element_blank(), panel.border = element_rect(fill = NA, colour = "grey30"), 
+        axis.ticks = element_blank(), axis.text = element_blank(), legend.key = element_blank(), 
+        legend.title = element_text(size = 10, face = "bold", colour = "grey30"), 
+        legend.text = element_text(size = 9, colour = "grey30")) +
+  labs(colour = "Depositor Spp.")
+
+
+n1 <- hh + geom_segment(aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), data = prey_spp_coord, size =1, alpha = 0.5, colour = "grey30") +
+  geom_text(data = prey_spp_coord, aes(x = NMDS1, y = NMDS2+0.04),    label = row.names(prey_spp_coord), colour = "navy", fontface = "bold") +
+  ggtitle("Cougar vs Wolf - Northeast - Summer")
+
+# Cougar vs Wolf - Northeast - Summer
+plot(ind.nmds, main =  "Cougar vs Wolf - Northeast - Summer") 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Puma concolor Northeast Summer"),draw="polygon",
+                 # col=c("tomato2"),
+                show.groups=T,label=F) 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Canis lupus Northeast Summer"),draw="polygon",
+                # col=c("skyblue2"), 
+                show.groups=T,label=F) 
+vegan::orditorp(ind.nmds,display="species", col="black",air=0.001)
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Puma concolor Northeast Summer",1]), 
+                          mean(ind.nmds$points[species.sa.season== "Puma concolor Northeast Summer",2])),
+                    pch = 14,cex=2))
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Canis lupus Northeast Summer",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Canis lupus Northeast Summer",2])),
+                  pch = 12,cex=2))
+with(data, legend("topleft", 
+                  # col=c("skyblue2", "tomato2"), 
+                  legend = c("Puma concolor","Canis lupus"), bty = "n",
                     pch = c(3,2)))
 
-# Wolf - Okanogan vs Northeast
-plot(ind.nmds, main =  "Wolf")
-vegan::ordihull(ind.nmds,groups=(species.sa== "Canis lupus Northeast"),draw="polygon",
-                col=c("tomato2"), show.groups=T,label=F)
-vegan::ordihull(ind.nmds,groups=(species.sa== "Canis lupus Okanogan"),draw="polygon",
-                col=c("skyblue2"), show.groups=T,label=F)
-vegan::orditorp(ind.nmds,display="species",col="black",air=0.01)
+# Cougar vs Wolf - Northeast - Winter
+plot(ind.nmds, main =  "Cougar vs Wolf - Northeast - Winter") 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Puma concolor Northeast Winter"),draw="polygon",
+                # col=c("tomato2"),
+                show.groups=T,label=F) 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Canis lupus Northeast Winter"),draw="polygon",
+                # col=c("skyblue2"), 
+                show.groups=T,label=F) 
+vegan::orditorp(ind.nmds,display="species", col="black",air=0.001)
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Puma concolor Northeast Winter",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Puma concolor Northeast Winter",2])),
+                  pch = 14,cex=2))
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Canis lupus Northeast Winter",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Canis lupus Northeast Winter",2])),
+                  pch = 12,cex=2))
+with(data, legend("topleft", 
+                  # col=c("skyblue2", "tomato2"), 
+                  legend = c("Puma concolor","Canis lupus"), bty = "n",
+                  pch = c(3,2)))
+
+
+# Cougar vs Wolf - Okanogan - Summer
+plot(ind.nmds, main =  "Cougar vs Wolf - Okanogan - Summer") 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Puma concolor Okanogan Summer"),draw="polygon",
+                # col=c("tomato2"),
+                show.groups=T,label=F) 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Canis lupus Okanogan Summer"),draw="polygon",
+                # col=c("skyblue2"), 
+                show.groups=T,label=F) 
+vegan::orditorp(ind.nmds,display="species", col="black",air=0.001)
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Puma concolor Okanogan Summer",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Puma concolor Okanogan Summer",2])),
+                  pch = 14,cex=2))
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Canis lupus Okanogan Summer",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Canis lupus Okanogan Summer",2])),
+                  pch = 12,cex=2))
+with(data, legend("topleft", 
+                  # col=c("skyblue2", "tomato2"), 
+                  legend = c("Puma concolor","Canis lupus"), bty = "n",
+                  pch = c(3,2)))
+
+
+# Cougar vs Wolf - Okanogan - Winter
+plot(ind.nmds, main =  "Cougar vs Wolf - Okanogan - Winter") 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Puma concolor Okanogan Winter"),draw="polygon",
+                # col=c("tomato2"),
+                show.groups=T,label=F) 
+vegan::ordihull(ind.nmds,groups=(species.sa.season== "Canis lupus Okanogan Winter"),draw="polygon",
+                # col=c("skyblue2"), 
+                show.groups=T,label=F) 
+vegan::orditorp(ind.nmds,display="species", col="black",air=0.001)
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Puma concolor Okanogan Winter",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Puma concolor Okanogan Winter",2])),
+                  pch = 14,cex=2))
+with(data, points(cbind(mean(ind.nmds$points[species.sa.season == "Canis lupus Okanogan Winter",1]), 
+                        mean(ind.nmds$points[species.sa.season== "Canis lupus Okanogan Winter",2])),
+                  pch = 12,cex=2))
+with(data, legend("topleft", 
+                  # col=c("skyblue2", "tomato2"), 
+                  legend = c("Puma concolor","Canis lupus"), bty = "n",
+                  pch = c(3,2)))
+
+# create a multiplot with gridarrange()
+# https://cran.r-project.org/web/packages/egg/vignettes/Ecosystem.html
+library(gridExtra)
+grid.arrange(n1, n2, n3, n4, nrow = 2, ncol = 2)
 
 # Bear - Okanogan vs Northeast
 plot(ind.nmds, main =  "Black Bear")
 vegan::ordihull(ind.nmds,groups=(species.sa== "Ursus americanus Northeast"),draw="polygon",
-                col=c("tomato2"), show.groups=T,label=F)
+                col=c("tomato2"), 
+                show.groups=T,label=F)
 vegan::ordihull(ind.nmds,groups=(species.sa== "Ursus americanus Okanogan"),draw="polygon",
                 col=c("skyblue2"), show.groups=T,label=F)
 vegan::orditorp(ind.nmds,display="species",col="black",air=0.01)

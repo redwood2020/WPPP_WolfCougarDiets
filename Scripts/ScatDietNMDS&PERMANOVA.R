@@ -1,212 +1,20 @@
-# Clear workspace
+# CODE FOR SCAT METABARCODING ANALYSES ---------------------
+# data formatting, bootstrapping, %FO plots, NMDS plots, Shannon's Index, Pianka's Index, comparison plots (dietary diversity vs. dietary overlap)
+
+# Clear workspace ------------------------------------------
 rm(list = ls())
 
 getwd()
 
-`#### Functions
-AICc.PERMANOVA <- function(adonis.model) {
-  # check to see if object is an adonis model...
-  
-  if (!(adonis.model$aov.tab[1, 1] >= 1))
-    stop("object not output of adonis {vegan} ")
-  
-  # Ok, now extract appropriate terms from the adonis model
-  # Calculating AICc using residual sum of squares (RSS) since I don't think that adonis returns something I can use as a liklihood function...
-  
-  RSS <-
-    adonis.model$aov.tab[rownames(adonis.model$aov.tab) == "Residuals", "SumsOfSqs"]
-  MSE <-
-    adonis.model$aov.tab[rownames(adonis.model$aov.tab) == "Residuals", "MeanSqs"]
-  
-  k <-
-    ncol(adonis.model$model.matrix)# + 1 # add one for error variance
-  
-  nn <- nrow(adonis.model$model.matrix)
-  
-  # AIC : 2*k + n*ln(RSS)
-  # AICc: AIC + [2k(k+1)]/(n-k-1)
-  
-  # based on https://en.wikipedia.org/wiki/Akaike_information_criterion;
-  # https://www.researchgate.net/post/What_is_the_AIC_formula;
-  # http://avesbiodiv.mncn.csic.es/estadistica/ejemploaic.pdf
-  
-  # AIC.g is generalized version of AIC = 2k + n [Ln( 2(pi) RSS/n ) + 1]
-  # AIC.pi = k + n [Ln( 2(pi) RSS/(n-k) ) +1],
-  
-  AIC <- 2 * k + nn * log(RSS)
-  AIC.g <- 2 * k + nn * (1 + log(2 * pi * RSS / nn))
-  AIC.MSE <- 2 * k + nn * log(MSE)
-  AIC.pi <- k + nn * (1 + log(2 * pi * RSS / (nn - k)))
-  AICc <- AIC + (2 * k * (k + 1)) / (nn - k - 1)
-  AICc.MSE <- AIC.MSE + (2 * k * (k + 1)) / (nn - k - 1)
-  AICc.pi <- AIC.pi + (2 * k * (k + 1)) / (nn - k - 1)
-  
-  output <- list(
-    "AIC" = AIC,
-    "AIC.g" = AIC.g,
-    "AICc" = AICc,
-    "AIC.MSE" = AIC.MSE,
-    "AICc.MSE" = AICc.MSE,
-    "AIC.pi" = AIC.pi,
-    "AICc.pi" = AICc.pi,
-    "k" = k
-  )
-  
-  return(output)
-  
-}
-AICc.PERMANOVA2 <- function(adonis2.model) {
-  # check to see if object is an adonis2 model...
-  
-  if (is.na(adonis2.model$SumOfSqs[1]))
-    stop("object not output of adonis2 {vegan} ")
-  
-  # Ok, now extract appropriate terms from the adonis model Calculating AICc
-  # using residual sum of squares (RSS or SSE) since I don't think that adonis
-  # returns something I can use as a likelihood function... maximum likelihood
-  # and MSE estimates are the same when distribution is gaussian See e.g.
-  # https://www.jessicayung.com/mse-as-maximum-likelihood/;
-  # https://towardsdatascience.com/probability-concepts-explained-maximum-likelihood-estimation-c7b4342fdbb1
-  # So using RSS or MSE estimates is fine as long as the residuals are
-  # Gaussian https://robjhyndman.com/hyndsight/aic/ If models have different
-  # conditional likelihoods then AIC is not valid. However, comparing models
-  # with different error distributions is ok (above link).
-  
-  
-  RSS <- null$SumOfSqs[length(null$SumOfSqs) - 1]
-  MSE <- RSS / adonis2.model$Df[length(adonis2.model$Df) - 1]
-  
-  nn <- adonis2.model$Df[length(adonis2.model$Df)] + 1
-  
-  k <- nn - adonis2.model$Df[length(adonis2.model$Df) - 1]
-  
-  
-  # AIC : 2*k + n*ln(RSS/n)
-  # AICc: AIC + [2k(k+1)]/(n-k-1)
-  
-  # based on https://en.wikipedia.org/wiki/Akaike_information_criterion;
-  # https://www.statisticshowto.datasciencecentral.com/akaikes-information-criterion/ ;
-  # https://www.researchgate.net/post/What_is_the_AIC_formula;
-  # http://avesbiodiv.mncn.csic.es/estadistica/ejemploaic.pdf;
-  # https://medium.com/better-programming/data-science-modeling-how-to-use-linear-regression-with-python-fdf6ca5481be
-  
-  # AIC.g is generalized version of AIC = 2k + n [Ln( 2(pi) RSS/n ) + 1]
-  # AIC.pi = k + n [Ln( 2(pi) RSS/(n-k) ) +1],
-  
-  AIC <- 2 * k + nn * log(RSS / nn)
-  AIC.g <- 2 * k + nn * (1 + log(2 * pi * RSS / nn))
-  AIC.MSE <- 2 * k + nn * log(MSE)
-  AIC.pi <- k + nn * (1 + log(2 * pi * RSS / (nn - k)))
-  AICc <- AIC + (2 * k * (k + 1)) / (nn - k - 1)
-  AICc.MSE <- AIC.MSE + (2 * k * (k + 1)) / (nn - k - 1)
-  AICc.pi <- AIC.pi + (2 * k * (k + 1)) / (nn - k - 1)
-  
-  output <- list(
-    "AIC" = AIC,
-    "AICc" = AICc,
-    "AIC.g" = AIC.g,
-    "AIC.MSE" = AIC.MSE,
-    "AICc.MSE" = AICc.MSE,
-    "AIC.pi" = AIC.pi,
-    "AICc.pi" = AICc.pi,
-    "k" = k,
-    "N" = nn
-  )
-  
-  return(output)
-  
-}
+# Species Breakdowns - Scat Data ----------------------------
 
-################################
-# Species Breakdowns - Scat Data
-################################
-
+# read in and format scat data ----------------------------
 library(tidyverse)
 
+# load the species found in each scat sample via metabarcoding
 data <- read.csv("Data/diets_long_PERMANOVA.csv")
-head(data)
-str(data)
-
-# note that I manually added values to the "prey_simple_deerspp" and "prey_simple_unkdeer" columns in Excel to create the diets_long_PERMANOVA.csv from the diets_long.csv - code this in for future (9/7/22)
-
-# add in season, cluster/non-cluster, and carcass found/not found
-scatlog <- read.csv("Data/ScatLog_MetabarcodingSamples.csv")
-head(scatlog)
-str(scatlog)
-
-# create a new column based on the "Found_Along" column named "Cluster" - Yes = found "AtCluster", No = otherwise
-table(scatlog$Found_Along)
-scatlog <- scatlog %>%
-  mutate(
-    Cluster = recode(
-      Found_Along,
-      'AtCluster' = 'Yes',
-      'AtCluster, Off-trail' = 'Yes',
-      'AtCluster, Road' = 'Yes',
-      'AtCluster, Trail' = 'Yes',
-      'Follow' = 'No',
-      'Off-trail' = 'No',
-      'Other' = 'No',
-      'Road' = 'No',
-      'Trail' = 'No'
-    )
-  )
-with(scatlog, table(Metabarcoding_Species, Cluster))
-table(scatlog$Cluster)
-head(scatlog)
-str(scatlog)
-
-# reclassify "Season" into just 'Summer' (Summer + Fall) and 'Winter' (Winter + Spring)
-table(scatlog$Season)
-scatlog <- scatlog %>%
-  mutate(
-    Season = recode(
-      Season,
-      'Winter' = 'Winter',
-      'Spring' = 'Winter',
-      'Summer' = 'Summer',
-      'Fall' = 'Summer'
-    )
-  )
-with(scatlog, table(Season, Metabarcoding_Species))
-table(scatlog$Season)
-table(scatlog$Date_Sent_OSU)
-head(scatlog)
-
-# create column for carcass found/not found at cluster in the scatlog database so we know how many scats came from clusters with prey (true feeding sites) vs from clusters without prey (presumed resting sites)
-# subset the scatlog to only scats that were sent for metabarcoding analysis
-scatlog_meta <- scatlog[!(scatlog$Date_Sent_OSU == ""),]
-# create a new column for cluster ID in the scat log
-scatlog_meta <-
-  scatlog_meta %>% mutate(Cluster_ID = gsub('(.*)-\\w+', '\\1', Scat_ID),
-                          .after = Scat_ID)
-# read in the cluster database files
-clusters_reg <- read.csv("Data/WolfCougarClusters_Database.csv")
-clusters_winter <- read.csv("Data/Winter2020_Database.csv")
-head(clusters_reg)
-head(clusters_winter)
-dim(clusters_reg)
-dim(clusters_winter)
-# merge the two databases into one
-clusters <- dplyr::bind_rows(clusters_reg, clusters_winter)
-#assign carcass found/not found to each scat ID by cluster ID
-scatlog_meta <-
-  merge(scatlog_meta, clusters[, c(
-    "Cluster_ID",
-    "CarcassFound",
-    "PreySpecies_Final",
-    "Sex_Final",
-    "AgeClassDeer_Final",
-    "AgeEstimate_Final"
-  )], by = "Cluster_ID", all.x = TRUE)
-###############################
-# NEED TO FIX THE ASSIGNMENT FOR CARCASS FOUND/NOT FOUND FOR NA VALUES, IGNORED FOR NOW B/C DOES NOT AFFECT PIANKA'S INDEX
-###############################
-
-with(scatlog_meta,
-     table(Metabarcoding_Species, Metabarcoding_Status))
-with(scatlog_meta,
-     table(CarcassFound, Cluster, Metabarcoding_Species))
+# load the scat log metadata with cluster, carcass, and prey species found at cluster information
+scatlog_meta <- read.csv("Data/scatlog_meta_ClusterID_Final.csv")
 
 # create a second database of only wolf and cougar scats with confirmed depositor that also contain vertebrate prey
 slm_cc <-
@@ -214,10 +22,8 @@ slm_cc <-
          Metabarcoding_Species == 'Wolf' |
            Metabarcoding_Species == 'Cougar')
 slm_cc <- subset(slm_cc, Metabarcoding_Status == "Pred_w_prey")
-# samples sizes for all scats with depostior confirmed regardless of prey contents
+# samples sizes for all scats with depositor confirmed regardless of prey contents
 with(scatlog_meta, table(Season, StudyArea, Metabarcoding_Species))
-# sample sizes for amplified scats with prey (subset of previous)
-with(slm_cc, table(Season, StudyArea, Metabarcoding_Species))
 
 # take the resulting table and turn it into 1's if the item was present and 0's otherwise
 # FO_coug_bi <- FO_coug %>% mutate_if(is.numeric, ~ 1 * (. > 0))
@@ -235,6 +41,24 @@ with(slm_cc, table(Season, StudyArea, Metabarcoding_Species))
 
 # rename "Metabarcoding_ID" column in the scatlog_meta file to "Sample_ID to match the corresponding column in the "data" file
 slm_cc <- rename(slm_cc, SampleID = Metabarcoding_ID)
+# check
+length(unique(data$SampleID))
+length(unique(slm_cc$SampleID))
+
+slm_cc_sampleIDs <- unique(slm_cc$SampleID)
+data_sampleIDs <- unique(data$SampleID)
+length(slm_cc_sampleIDs) #316
+length(data_sampleIDs) #385 
+setdiff(slm_cc_sampleIDs, data_sampleIDs) #should be none - character(0)
+
+# sample sizes for Table 1 ----
+# sample sizes for amplified scats with prey (subset of previous)
+with(slm_cc, table(Season, StudyArea, Metabarcoding_Species))
+
+# sample sizes for Table 2 ----
+# check the number of scat found at clusters with prey, without prey, and at non-clusters
+with(slm_cc, table(Cluster, CarcassFound, Metabarcoding_Species))
+
 # add a column for season to the "data" file by pulling from the "slm_cc" file
 data <-
   merge(data, slm_cc[, c("SampleID", "Season", "Cluster")], by.x = "SampleID")
@@ -253,28 +77,30 @@ col_order <-
     "prey_simple_unkdeer"
   )
 data <- data[, col_order]
+length(unique(data$SampleID)) #316
 
-# attempt to reassign "deerunkspp" to either "muledeer" or "whitetaileddeer" in the "prey_simple_deerspp" column of the "data" dataframe - assign proportionally within species, study area, and season
+# reassign "deerunkspp" to either "muledeer" or "whitetaileddeer" in the "prey_simple_deerspp" column of the "data" dataframe - assign proportionally within species, study area, and season
 ## first calculate proportions of MD and WTD species within each group
-MD <-
-  data %>% group_by(Depositor_DNA, StudyArea, Season) %>% summarise(
-    priv_perc = sum(prey_simple_deerspp == "muledeer", na.rm = T) / sum(
-      prey_simple_deerspp == "whitetaileddeer" |
-        prey_simple_deerspp == "muledeer",
-      na.rm = T
-    )
-  )
+## then use inside deerloop() function
+# MD <-
+#   data %>% group_by(Depositor_DNA, StudyArea, Season) %>% summarise(
+#     priv_perc = sum(prey_simple_deerspp == "muledeer", na.rm = T) / sum(
+#       prey_simple_deerspp == "whitetaileddeer" |
+#         prey_simple_deerspp == "muledeer",
+#       na.rm = T
+#     )
+#   )
 
-WTD <-
-  data %>% group_by(Depositor_DNA, StudyArea, Season) %>% summarise(
-    priv_perc = sum(prey_simple_deerspp == "whitetaileddeer", na.rm = T) / sum(
-      prey_simple_deerspp == "whitetaileddeer" |
-        prey_simple_deerspp == "muledeer",
-      na.rm = T
-    )
-  )
+# WTD <-
+#   data %>% group_by(Depositor_DNA, StudyArea, Season) %>% summarise(
+#     priv_perc = sum(prey_simple_deerspp == "whitetaileddeer", na.rm = T) / sum(
+#       prey_simple_deerspp == "whitetaileddeer" |
+#         prey_simple_deerspp == "muledeer",
+#       na.rm = T
+#     )
+#   )
 
-# create a new column only to indicate rows where "prey_simple_deerspp" = "deerunkspp" and automatically set to "deerunkspp" and NA otherwise
+# # create a new column only to indicate rows where "prey_simple_deerspp" = "deerunkspp" and automatically set to "deerunkspp" and NA otherwise
 data <- data %>% mutate(
   Status = case_when(
     prey_simple_deerspp == "deerunkspp" ~ "deerunkspp",
@@ -285,32 +111,40 @@ head(data)
 
 # now select your carnivore/studyarea/season combo
 # this is a test calculation to be later used inside a function
-carnivore = "Canis lupus"
+# carnivore = "Canis lupus"
+# studyarea = "Northeast"
+# season = "Winter"
+# 
+# pct_d <-
+#   WTD[WTD$Depositor_DNA == carnivore &
+#         WTD$StudyArea == studyarea & WTD$Season == season, 4]
+# as.numeric(pct_d)
+# 1 - pct_d
+# 
+# # get number of values of "deerunkspp" in Status, assign n
+# nd <- table(data$Status)[1]
+# # create a list of random binary variables where pct_d represents the proportion of white-taileddeer, and 1-pct_d represent the number of mule deer
+# WTD
+# data$random_prop_deer <- data[, 'random_prop_deer'] <- NA
+# nd_names <- c()
+# head(data)
+# nd_names <- sample(
+#   c("whitetaileddeer", "muledeer"),
+#   size = nd,
+#   prob = c(pct_d, (1 - pct_d)),
+#   replace = TRUE
+# )
+
+# test metrics
+carnivore = "Puma concolor"
 studyarea = "Northeast"
-season = "Winter"
-
-pct_d <-
-  WTD[WTD$Depositor_DNA == carnivore &
-        WTD$StudyArea == studyarea & WTD$Season == season, 4]
-as.numeric(pct_d)
-1 - pct_d
-
-# get number of values of "deerunkspp" in Status, assign n
-nd <- table(data$Status)[1]
-# create a list of random binary variables where pct_d represents the proportion of white-taileddeer, and 1-pct_d represent the number of mule deer
-WTD
-data$random_prop_deer <- data[, 'random_prop_deer'] <- NA
-nd_names <- c()
-head(data)
-nd_names <- sample(
-  c("whitetaileddeer", "muledeer"),
-  size = nd,
-  prob = c(pct_d, (1 - pct_d)),
-  replace = TRUE
-)
-
+season = "Summer"
 
 # now create a new column called "rand_prop_deer" that fills in all the "deerunkspp" in the "preys_simple_deerspp" column with either "whitetaileddeer" or "muledeer" based on proportion of other known deer for that carnivore-studyarea-season group
+#
+#create initial vector
+nd_names <- c()
+# write "deerloop" function
 deerloop <- function(carnivore, studyarea, season) {
   WTD <- data %>% group_by(Depositor_DNA, StudyArea, Season) %>%
     summarise(
@@ -341,22 +175,121 @@ deerloop <- function(carnivore, studyarea, season) {
              nd_names[i],
              data_sub$prey_simple_deerspp[i])
   }
-  # remove this line witin the loop to just replace deerunkspp, keep to then resample (bootstrap) the entire datast to a new column
+  
+  # see if this helps with the factor level error that is halting the for loop that calculates pianka's, %FO, and shannon's
+    preynames <- c(
+      "muledeer",
+      "whitetaileddeer",
+      "moose",
+      "elk",
+      "bird",
+      "carnivore",
+      "lagomorph",
+      "med_mammal",
+      "small_mammal",
+      "other",
+      "livestock"
+    )
+    preynames <- factor(preynames)
+    data_sub$rand_prop_deer = factor(data_sub$rand_prop_deer, levels = levels(preynames))
+
+  # remove this line witin the loop to just replace deerunkspp, keep to then resample (bootstrap) the entire dataset to a new column
   data_sub$PreyResample <-
     sample(data_sub$rand_prop_deer,
-           replace = TRUE) 
+           replace = TRUE)
+  return(data_sub)
+}
+
+# now create a new column called "rand_prop_deer" that fills in all the "deerunkspp" in the "preys_simple_deerspp" column with either "whitetaileddeer" or "muledeer" based on proportion of other known deer for that carnivore-studyarea-season group
+# for this deerloop_cvd option we are looking only at the cervids, so WTD, MD, Elk, and Moose
+deerloop_cvd <- function(carnivore, studyarea, season) {
+  WTD <- data %>% group_by(Depositor_DNA, StudyArea, Season) %>%
+    summarise(
+      priv_perc = sum(prey_simple_deerspp == "whitetaileddeer", na.rm = T) / sum(
+        prey_simple_deerspp == "whitetaileddeer" |
+          prey_simple_deerspp == "muledeer",
+        na.rm = T
+      )
+    )
+  pct_d <-
+    WTD[WTD$Depositor_DNA == carnivore &
+          WTD$StudyArea == studyarea & WTD$Season == season, 4]
+  data_sub <-
+    filter(data,
+           Depositor_DNA == carnivore,
+           StudyArea == studyarea,
+           Season == season)
+  
+  for (i in 1:length(data_sub$Status)) {
+    nd_names[i] <- sample(
+      c("whitetaileddeer", "muledeer"),
+      size = length(data_sub$Status[i]),
+      prob = c(pct_d, (1 - pct_d)),
+      replace = TRUE
+    )
+    data_sub$rand_prop_deer[i] <-
+      ifelse(data_sub$Status[i] == "deerunkspp",
+             nd_names[i],
+             data_sub$prey_simple_deerspp[i])
+  }
+  
+  # use this line only when calculating for WTD, MD, Elk, Moose, Livestock, and Other - comment out otherwise
+  data_sub$rand_prop_deer <- as.factor(data_sub$rand_prop_deer)
+  data_sub$rand_prop_deer <- fct_collapse(data_sub$rand_prop_deer, other = c("bird", "lagomorph", "med_mammal", "small_mammal", "carnivore", "elk", "livestock", "other"))
+
+  data_sub <- data_sub[ (data_sub$rand_prop_deer %in% c("muledeer", "whitetaileddeer", "moose") ), ]
+
+  
+  # remove this line witin the loop to just replace deerunkspp, keep to then resample (bootstrap) the entire dataset to a new column
+  data_sub$PreyResample <-
+    sample(data_sub$rand_prop_deer,
+           replace = TRUE)
   return(data_sub)
 }
 
 #calculate %FO
 library(kwb.utils)
-FO_funct <- function(data, preynames, depositor, studyarea, season) {
-  data %>%
-    # this code ensures that all species categories are included in all dataframes even if values for some species are 0 for all samples
-    # commenting out this code results in dataframes that only have columns for species detected for the species/studyarea/season group
-    mutate(
-      rand_prop_deer = fct_relevel(
-        PreyResample,
+
+# percent FO for all 11 species groups
+FO_funct <- function(data, preynames, depositor, studyarea,    season) {
+    data %>%
+      # this code ensures that all species categories are included in all dataframes even if values for some species are 0 for all samples
+      # commenting out this code results in dataframes that only have columns for species detected for the species/studyarea/season group
+      mutate(
+        rand_prop_deer = fct_relevel(
+          PreyResample,
+          "muledeer",
+          "whitetaileddeer",
+          "moose",
+          "elk",
+          "bird",
+          "carnivore",
+          "lagomorph",
+          "med_mammal",
+          "small_mammal",
+          "other",
+          "livestock"
+        )
+      ) %>%
+      filter(Depositor_DNA == depositor,
+             StudyArea == studyarea,
+             Season == season) %>%
+      count(SampleID, PreyResample) %>%
+      group_by(SampleID) %>%
+      mutate(n = prop.table(n)) %>%
+      ungroup() %>%
+      pivot_wider(
+        names_from = PreyResample,
+        values_from = n,
+        names_prefix = ''
+      ) %>%
+      replace(is.na(.), 0) %>%
+      hsAddMissingCols(., preynames, fill.value = 0) %>%
+      mutate_if(is.numeric, ~ 1 * (. > 0)) %>% # make all entries 1 instead of splitting by scat
+      select(
+        .,
+        # reorder so all dataframes have the same column order
+        "SampleID",
         "muledeer",
         "whitetaileddeer",
         "moose",
@@ -369,6 +302,20 @@ FO_funct <- function(data, preynames, depositor, studyarea, season) {
         "other",
         "livestock"
       )
+  }
+
+# percent FO for main prey species / cervids only (WTD, MD, Moose)
+FO_funct_cvd <- function(data, preynames, depositor, studyarea,  season) {
+  data %>%
+    # this code ensures that all species categories are included in all dataframes even if values for some species are 0 for all samples
+    # commenting out this code results in dataframes that only have columns for species detected for the species/studyarea/season group
+      mutate(
+        rand_prop_deer = fct_relevel(
+          PreyResample,
+          "muledeer",
+          "whitetaileddeer",
+          "moose"
+        )
     ) %>%
     filter(Depositor_DNA == depositor,
            StudyArea == studyarea,
@@ -384,85 +331,50 @@ FO_funct <- function(data, preynames, depositor, studyarea, season) {
     ) %>%
     replace(is.na(.), 0) %>%
     hsAddMissingCols(., preynames, fill.value = 0) %>%
-    mutate_if(is.numeric, ~1 * (. > 0)) %>% # make all entries 1 instead of splitting by scat
-    select(., # reorder so all dataframes have the same column order
-           "SampleID",
-           "muledeer",
-           "whitetaileddeer",
-           "moose",
-           "elk",
-           "bird",
-           "carnivore",
-           "lagomorph",
-           "med_mammal",
-           "small_mammal",
-           "other",
-           "livestock")
+    mutate_if(is.numeric, ~ 1 * (. > 0)) %>% # make all entries 1 instead of splitting by scat
+    select(
+      .,
+      # reorder so all dataframes have the same column order
+  "SampleID",
+  "muledeer",
+  "whitetaileddeer",
+  "moose")
 }
 
+# run 10000 bootstrap iterations with the 11 prey categories-----
 # now reassign WTD/MD based on proportion and then bootstrap the dataset once
 # do this a set number of times
-# output a vector of pianka values
-North_Sum <- c()
-North_Wint <- c()
-Okan_Sum <- c()
-Okan_Wint <- c()
-  
-for (i in 1:1000) {
-# ok now use the function to generate outputs for each  of the eight groups (carnivore, studyarea, season) and then rowbind to merge
-# wolves
-out_CN_S <-
-  deerloop(carnivore = "Canis lupus",
-           studyarea = "Northeast",
-           season = "Summer")
-out_CN_W <-
-  deerloop(carnivore = "Canis lupus",
-           studyarea = "Northeast",
-           season = "Winter")
-out_CO_S <-
-  deerloop(carnivore = "Canis lupus",
-           studyarea = "Okanogan",
-           season = "Summer")
-out_CO_W <-
-  deerloop(carnivore = "Canis lupus",
-           studyarea = "Okanogan",
-           season = "Winter")
-# cougars
-out_PN_S <-
-  deerloop(carnivore = "Puma concolor",
-           studyarea = "Northeast",
-           season = "Summer")
-out_PN_W <-
-  deerloop(carnivore = "Puma concolor",
-           studyarea = "Northeast",
-           season = "Winter")
-out_PO_S <-
-  deerloop(carnivore = "Puma concolor",
-           studyarea = "Okanogan",
-           season = "Summer")
-out_PO_W <-
-  deerloop(carnivore = "Puma concolor",
-           studyarea = "Okanogan",
-           season = "Winter")
-
-# now combine into a new dataframe
-data_new <-
-  rbind(out_CN_S,
-        out_CN_W,
-        out_CO_S,
-        out_CO_W,
-        out_PN_S,
-        out_PN_W,
-        out_PO_S,
-        out_PO_W)
-
-# now calculate percent frequency of occurrence by scat sample
-
-# having a problem where the function drops prey categories with no entries - testing code below to try to keep/add back zero columns for missing prey categories
-# https://stackoverflow.com/questions/55024338/add-missing-columns-from-different-data-frame-filled-with-0
-# use the FO_funct from earlier to subset data and create columns by species group
-# first define the prey categories for the function call
-preynames <- c(
+# create empty vectors for Pianka values
+North_Sum_pianka <- c()
+North_Wint_pianka <- c()
+Okan_Sum_pianka <- c()
+Okan_Wint_pianka <- c()
+# create empty vectors for Shannon's values
+# cougar / Puma concolor / H
+PN_S_shan_H <- c()
+PN_W_shan_H <- c()
+PO_S_shan_H <- c()
+PO_W_shan_H <- c()
+# cougar / Puma concolor / J
+PN_S_shan_J <- c()
+PN_W_shan_J <- c()
+PO_S_shan_J <- c()
+PO_W_shan_J <- c()
+# wolf / Canis lupus / H
+CN_S_shan_H <- c()
+CN_W_shan_H <- c()
+CO_S_shan_H <- c()
+CO_W_shan_H <- c()
+# wolf / Canis lupus / J
+CN_S_shan_J <- c()
+CN_W_shan_J <- c()
+CO_S_shan_J <- c()
+CO_W_shan_J <- c()
+# create empty vectors for the percent frequency of occurrence 
+# first need to assign column names for all 11 prey species
+# create an empty dataframe with the correct number of columns
+df_spp <- data.frame(matrix(ncol = 11, nrow = 0))
+x <- c(
   "muledeer",
   "whitetaileddeer",
   "moose",
@@ -475,181 +387,1167 @@ preynames <- c(
   "other",
   "livestock"
 )
+colnames(df_spp) <- x
 
-# create dataframes for all combinations that include zero columns for prey categories not recorded
-FO_PN_S <- FO_funct(data_new, preynames, 'Puma concolor', 'Northeast', 'Summer')
-FO_PN_W <- FO_funct(data_new, preynames, "Puma concolor", "Northeast", "Winter")
-FO_PO_S <- FO_funct(data_new, preynames, "Puma concolor", "Okanogan", "Summer")
-FO_PO_W <- FO_funct(data_new, preynames, "Puma concolor", "Okanogan", "Winter")
-FO_CN_S <- FO_funct(data_new, preynames, "Canis lupus", "Northeast", "Summer")
-FO_CN_W <- FO_funct(data_new, preynames, "Canis lupus", "Northeast", "Winter")
-FO_CO_S <- FO_funct(data_new, preynames, "Canis lupus", "Okanogan", "Summer")
-FO_CO_W <- FO_funct(data_new, preynames, "Canis lupus", "Okanogan", "Winter")
+PN_S_FO <- df_spp
+PN_W_FO <- df_spp
+PO_S_FO <- df_spp
+PO_W_FO <- df_spp
+CN_S_FO <- df_spp
+CN_W_FO <- df_spp
+CO_S_FO <- df_spp
+CO_W_FO <- df_spp
 
-# create a list of the dataframes
-# could save this list below to a .csv for Shannon's index and %FO confidence intervals
-wolfcoug_list <- list(FO_PN_S, FO_PN_W, FO_PO_S, FO_PO_W, FO_CN_S, FO_CN_W, FO_CO_S, FO_CO_W)
+# COMMENTED OUT THE FOR LOOP - UNCOMMENT TO RE-RUN
+# for (i in 1:10000) {
+  # i=1
+  # ok now use the function to generate outputs for each  of the eight groups (carnivore, studyarea, season) and then rowbind to merge
+  # note that this randomly assigns "whitetailedeeer" or "muledeer" to the "deerunkspp" entries randomly by proportion of that carnivore-studyarea-season subgroup
+  # wolves
+  out_CN_S <-
+    deerloop(carnivore = "Canis lupus",
+             studyarea = "Northeast",
+             season = "Summer")
+  out_CN_W <-
+    deerloop(carnivore = "Canis lupus",
+             studyarea = "Northeast",
+             season = "Winter")
+  out_CO_S <-
+    deerloop(carnivore = "Canis lupus",
+             studyarea = "Okanogan",
+             season = "Summer")
+  out_CO_W <-
+    deerloop(carnivore = "Canis lupus",
+             studyarea = "Okanogan",
+             season = "Winter")
+  # cougars
+  out_PN_S <-
+    deerloop(carnivore = "Puma concolor",
+             studyarea = "Northeast",
+             season = "Summer")
+  out_PN_W <-
+    deerloop(carnivore = "Puma concolor",
+             studyarea = "Northeast",
+             season = "Winter")
+  out_PO_S <-
+    deerloop(carnivore = "Puma concolor",
+             studyarea = "Okanogan",
+             season = "Summer")
+  out_PO_W <-
+    deerloop(carnivore = "Puma concolor",
+             studyarea = "Okanogan",
+             season = "Winter")
 
-library(dplyr)
-library(purrr)
-library(data.table)
+  # now combine into a new dataframe
+  data_new <-
+    rbind(out_CN_S,
+          out_CN_W,
+          out_CO_S,
+          out_CO_W,
+          out_PN_S,
+          out_PN_W,
+          out_PO_S,
+          out_PO_W)
 
-# calculating pianka's index using code from above inside a function
-# cougdata <- wolfcoug_list[[1]] #cougar northeast summer
-# wolfdata <- wolfcoug_list[[2]] #wolf northeast summer
-
-piankaind <- function(cougdata, wolfdata) {
+  # now calculate percent frequency of occurrence by scat sample
   
-coug_sum <- cougdata %>% select_if(is.numeric) %>% map_dbl(sum) 
-coug_sum$PreyItems <- rownames(coug_sum) # make rows columns
-coug_sum <- as.data.frame(coug_sum)
+  # having a problem where the function drops prey categories with no entries - testing code below to try to keep/add back zero columns for missing prey categories
+  # https://stackoverflow.com/questions/55024338/add-missing-columns-from-different-data-frame-filled-with-0
+  # use the FO_funct from earlier to subset data and create columns by species group
+  # first define the prey categories for the function call
+  preynames <- c(
+    "muledeer",
+    "whitetaileddeer",
+    "moose",
+    "elk",
+    "bird",
+    "carnivore",
+    "lagomorph",
+    "med_mammal",
+    "small_mammal",
+    "other",
+    "livestock"
+  )
+  
+  # create dataframes for all combinations that include zero columns for prey categories not recorded
+  FO_PN_S <-
+    FO_funct(data_new, preynames, 'Puma concolor', 'Northeast', 'Summer')
+  FO_PN_W <-
+    FO_funct(data_new, preynames, "Puma concolor", "Northeast", "Winter")
+  FO_PO_S <-
+    FO_funct(data_new, preynames, "Puma concolor", "Okanogan", "Summer")
+  FO_PO_W <-
+    FO_funct(data_new, preynames, "Puma concolor", "Okanogan", "Winter")
+  FO_CN_S <-
+    FO_funct(data_new, preynames, "Canis lupus", "Northeast", "Summer")
+  FO_CN_W <-
+    FO_funct(data_new, preynames, "Canis lupus", "Northeast", "Winter")
+  FO_CO_S <-
+    FO_funct(data_new, preynames, "Canis lupus", "Okanogan", "Summer")
+  FO_CO_W <-
+    FO_funct(data_new, preynames, "Canis lupus", "Okanogan", "Winter")
+  
+  # create a list of the dataframes
+  # could save this list below to a .csv for Shannon's index and %FO confidence intervals
+  wolfcoug_list <-
+    list(FO_PN_S,
+         FO_PN_W,
+         FO_PO_S,
+         FO_PO_W,
+         FO_CN_S,
+         FO_CN_W,
+         FO_CO_S,
+         FO_CO_W) %>%
+    set_names(
+      c(
+        'FO_PN_S',
+        'FO_PN_W',
+        'FO_PO_S',
+        'FO_PO_W',
+        'FO_CN_S',
+        'FO_CN_W',
+        'FO_CO_S',
+        'FO_CO_W'
+      )
+    )
+  
+  library(dplyr)
+  library(purrr)
+  library(data.table)
+  
+  # calculating pianka's index using code from above inside a function
+  # cougdata <- wolfcoug_list[[1]] #cougar northeast summer
+  # wolfdata <- wolfcoug_list[[2]] #wolf northeast summer
+  
+  piankaind <- function(cougdata, wolfdata) {
+    coug_sum <- cougdata %>% select_if(is.numeric) %>% map_dbl(sum)
+    coug_sum$PreyItems <- rownames(coug_sum) # make rows columns
+    coug_sum <- as.data.frame(coug_sum)
+    
+    wolf_sum <- wolfdata %>% select_if(is.numeric) %>% map_dbl(sum)
+    wolf_sum$PreyItems <- rownames(wolf_sum) # make rows columns
+    wolf_sum <- as.data.frame(wolf_sum)
+    
+    #combine into one dataframe
+    P_Index <- rbind(coug_sum, wolf_sum)
+    
+    # pull vector data for Pianka's index
+    coug <- P_Index[1, 1:11]
+    wolf <- P_Index[2, 1:11]
+    
+    # get vectors of PreyItem counts by carnivore
+    coug_v <- coug %>% as.numeric(coug)
+    wolf_v <- wolf %>% as.numeric(wolf)
+    # convert to proportion values
+    coug_vp <- coug_v / sum(coug_v)
+    wolf_vp <- wolf_v / sum(wolf_v)
+    
+    # square proportion values
+    coug_vp2 <- (coug_vp) ^ 2
+    wolf_vp2 <- (wolf_vp) ^ 2
+    
+    piankaout <-
+      sum(coug_vp * wolf_vp) / sqrt(sum(coug_vp2) * sum(wolf_vp2))
+    return(piankaout)
+  }
+  
+  
+  # output and store final pianka values for each studyarea-season combo
+  North_Sum_pianka[i] <-
+    piankaind(wolfcoug_list[[1]], wolfcoug_list[[5]]) #0.678 Northeast Summer
+  North_Wint_pianka[i] <-
+    piankaind(wolfcoug_list[[2]], wolfcoug_list[[6]]) #0.858 Northeast Winter
+  Okan_Sum_pianka[i] <-
+    piankaind(wolfcoug_list[[3]], wolfcoug_list[[7]]) #0.855 Okanogan Summer
+  Okan_Wint_pianka[i] <-
+    piankaind(wolfcoug_list[[4]], wolfcoug_list[[8]]) #0.956 Okanogan Winter
 
-wolf_sum <- wolfdata %>% select_if(is.numeric) %>% map_dbl(sum) 
-wolf_sum$PreyItems <- rownames(wolf_sum) # make rows columns
-wolf_sum <- as.data.frame(wolf_sum)
 
-#combine into one dataframe
-P_Index <- rbind(coug_sum, wolf_sum)
-
-# pull vector data for Pianka's index
-coug <- P_Index[1,1:11]
-wolf <- P_Index[2,1:11]
-
-# get vectors of PreyItem counts by carnivore
-coug_v <- coug %>% as.numeric(coug)
-wolf_v <- wolf %>% as.numeric(wolf)
-# convert to proportion values 
-coug_vp <- coug_v/sum(coug_v)
-wolf_vp <- wolf_v/sum(wolf_v)
-
-# square proportion values
-coug_vp2 <- (coug_vp)^2
-wolf_vp2 <- (wolf_vp)^2
-
-piankaout <- sum(coug_vp*wolf_vp) / sqrt( sum(coug_vp2) * sum(wolf_vp2) )
-return(piankaout)
+  
+  # calculate Shannon's diversity index ---------------------
+  
+  # create dataframes for each species/study area combo
+  # all 11 prey categories
+  # # cougars / Puma concolor
+  PN_S <- wolfcoug_list[[1]]
+  PN_W <- wolfcoug_list[[2]]
+  PO_S <- wolfcoug_list[[3]]
+  PO_W <- wolfcoug_list[[4]]
+  
+  # wolves / Canis lupus
+  CN_S <- wolfcoug_list[[5]]
+  CN_W <- wolfcoug_list[[6]]
+  CO_S <- wolfcoug_list[[7]]
+  CO_W <- wolfcoug_list[[8]]
+  
+  # # WTD / MD / Moose only (3 prey categories)
+  # # cougars / Puma concolor
+  # PN_S_O <- wolfcoug_list_other[[1]]
+  # PN_W_O <- wolfcoug_list_other[[2]]
+  # PO_S_O <- wolfcoug_list_other[[3]]
+  # PO_W_O <- wolfcoug_list_other[[4]]
+  # 
+  # # wolves / Canis lupus
+  # CN_S_O <- wolfcoug_list_other[[5]]
+  # CN_W_O <- wolfcoug_list_other[[6]]
+  # CO_S_O <- wolfcoug_list_other[[7]]
+  # CO_W_O <- wolfcoug_list_other[[8]]
+  
+  # now divide the column sums by the total number of scats (number of rows) to get the percent frequency of occurrence
+  # write a function to calculate the %FO to get bootstrapped data prepared for calculation of shannon's index
+  FO_spp_shan <-
+    function(data_shan,
+             depositorspp,
+             studyarea,
+             season) {
+      # # test criteria
+      # data_shan <- PN_S
+      # depositorspp <- 'Puma concolor'
+      # studyarea <- 'Northeast'
+      # season <- 'Summer'
+      
+      # first calcuate
+      FO_shan <- subset(data_shan, select = -SampleID)
+      FO_spp_shan <- sapply(FO_shan, sum)
+      
+      FO_spp_shan <- FO_spp_shan / as.integer(nrow(FO_shan))
+      FO_spp_shan <- stack(FO_spp_shan)
+      FO_spp_shan <- as.data.frame(FO_spp_shan)
+      colnames(FO_spp_shan) <- c("Pct_FO", "PreyItem")
+      FO_spp_shan <- FO_spp_shan[c("PreyItem", "Pct_FO")]
+      FO_spp_shan <-
+        FO_spp_shan %>% mutate(StudyArea = studyarea, .before = PreyItem) %>% mutate(DepositorSpp = depositorspp, .before = StudyArea) %>% mutate(Season = season, .after = StudyArea)
+      
+    }
+  
+  # now run the shannon filter on all our prey datasets
+  # all 11 prey categories
+  # # cougars / Puma concolor
+  PN_S_shan <-
+    FO_spp_shan(PN_S, 'Puma concolor', 'Northeast', 'Summer')
+  PN_W_shan <-
+    FO_spp_shan(PN_W, 'Puma concolor', 'Northeast', 'Winter')
+  PO_S_shan <-
+    FO_spp_shan(PO_S, 'Puma concolor', 'Okanogan', 'Summer')
+  PO_W_shan <-
+    FO_spp_shan(PO_W, 'Puma concolor', 'Okanogan', 'Winter')
+  
+  # wolves / Canis lupus
+  CN_S_shan <- FO_spp_shan(CN_S, 'Canis lupus', 'Northeast', 'Summer')
+  CN_W_shan <- FO_spp_shan(CN_W, 'Canis lupus', 'Northeast', 'Winter')
+  CO_S_shan <- FO_spp_shan(CO_S, 'Canis lupus', 'Okanogan', 'Summer')
+  CO_W_shan <- FO_spp_shan(CO_W, 'Canis lupus', 'Okanogan', 'Winter')
+  
+  # now save the %FO values for later plotting
+  # take dataframe, transpose
+  PN_S_FO[i,] <- PN_S_shan$Pct_FO
+  PN_W_FO[i,] <- PN_W_shan$Pct_FO
+  PO_S_FO[i,] <- PO_S_shan$Pct_FO
+  PO_W_FO[i,] <- PO_W_shan$Pct_FO
+  CN_S_FO[i,] <- CN_S_shan$Pct_FO
+  CN_W_FO[i,] <- CN_W_shan$Pct_FO
+  CO_S_FO[i,] <- CO_S_shan$Pct_FO
+  CO_W_FO[i,] <- CO_W_shan$Pct_FO
+  
+  # WTD / MD / Moose only (3 prey categories)
+  # cougars / Puma concolor
+  # PN_S_O_shan <-
+  #   FO_spp_shan(PN_S_O, 'Puma concolor', 'Northeast', 'Summer')
+  # PN_W_O_shan <-
+  #   FO_spp_shan(PN_W_O, 'Puma concolor', 'Northeast', 'Winter')
+  # PO_S_O_shan <-
+  #   FO_spp_shan(PO_S_O, 'Puma concolor', 'Okanogan', 'Summer')
+  # PO_W_O_shan <-
+  #   FO_spp_shan(PO_W_O, 'Puma concolor', 'Okanogan', 'Winter')
+  # 
+  # # wolves / Canis lupus
+  # CN_S_O_shan <-
+  #   FO_spp_shan(CN_S_O, 'Canis lupus', 'Northeast', 'Summer')
+  # CN_W_O_shan <-
+  #   FO_spp_shan(CN_W_O, 'Canis lupus', 'Northeast', 'Winter')
+  # CO_S_O_shan <-
+  #   FO_spp_shan(CO_S_O, 'Canis lupus', 'Okanogan', 'Summer')
+  # CO_W_O_shan <-
+  #   FO_spp_shan(CO_W_O, 'Canis lupus', 'Okanogan', 'Winter')
+  
+  # function "shannon"
+  # ? shannon()
+  #test shannon's on my data - just need each resource category and the proportion
+  library(pgirmess)
+  
+  # create a function
+  shannon_index <- function(data) {
+    shan_dat <- data[, 5]
+    shan_dat <- as.data.frame(shan_dat)
+    shan_dat <- as.numeric(unlist(shan_dat))
+    class(shan_dat)
+    shannon(shan_dat, base = exp(2))
+    
+  }
+  
+  # now use the formatted data to calculate shannon's index
+  # all 11 prey species groups
+  # cougars / Puma concolor
+  PN_S_shan_val <- shannon_index(PN_S_shan)
+  PN_W_shan_val <- shannon_index(PN_W_shan)
+  PO_S_shan_val <- shannon_index(PO_S_shan)
+  PO_W_shan_val <- shannon_index(PO_W_shan)
+  
+  # wolves / Canis lupus
+  CN_S_shan_val <- shannon_index(CN_S_shan)
+  CN_W_shan_val <- shannon_index(CN_W_shan)
+  CO_S_shan_val <- shannon_index(CO_S_shan)
+  CO_W_shan_val <- shannon_index(CO_W_shan)
+  
+  # WTD/MD/Moose only (3 prey groups)
+  # cougars / Puma concolor
+  # PN_S_O_shan_val <- shannon_index(PN_S_O_shan)
+  # PN_W_O_shan_val <- shannon_index(PN_W_O_shan)
+  # PO_S_O_shan_val <- shannon_index(PO_S_O_shan)
+  # PO_W_O_shan_val <- shannon_index(PO_W_O_shan)
+  # 
+  # # wolves / Canis lupus
+  # CN_S_O_shan_val <- shannon_index(PN_S_O_shan)
+  # CN_W_O_shan_val <- shannon_index(PN_W_O_shan)
+  # CO_S_O_shan_val <- shannon_index(PO_S_O_shan)
+  # CO_W_O_shan_val <- shannon_index(PO_W_O_shan)
+  
+  # now get Shannons diversity - H [1] and evenness - J [2] values
+  
+  # # first create dataframe for the values
+  # AllPrey_Shannon <- data.frame()
+  # WildPrey_Shannon <- data.frame()
+  # 
+  # # fill out column values
+  # AllPrey_Shannon %>% mutate(
+  #   Depositor_DNA = c(
+  #     'Puma concolor',
+  #     'Puma concolor',
+  #     'Puma concolor',
+  #     'Puma concolor',
+  #     'Canis lupus',
+  #     'Canis lupus',
+  #     'Canis lupus',
+  #     'Canis lupus'
+  #   )
+  # )
+  
+  
+  # AllPrey_Shannon$StudyArea <-
+  #   c(
+  #     'Northeast',
+  #     'Northeast',
+  #     'Okanogan',
+  #     'Okanogan',
+  #     'Northeast',
+  #     'Northeast',
+  #     'Okanogan',
+  #     'Okanogan'
+  #   )
+  # AllPrey_Shannon$Season <-
+  #   c('Summer',
+  #     'Winter',
+  #     'Summer',
+  #     'Winter',
+  #     'Summer',
+  #     'Winter',
+  #     'Summer',
+  #     'Winter')
+  
+  # all 11 prey species groups
+  # cougars / Puma concolor
+  # # H
+  PN_S_shan_H[i] <- PN_S_shan_val[1]
+  PN_W_shan_H[i] <- PN_W_shan_val[1]
+  PO_S_shan_H[i] <- PO_S_shan_val[1]
+  PO_W_shan_H[i] <- PO_W_shan_val[1]
+  # # J
+  PN_S_shan_J[i] <- PN_S_shan_val[2]
+  PN_W_shan_J[i] <- PN_W_shan_val[2]
+  PO_S_shan_J[i] <- PO_S_shan_val[2]
+  PO_W_shan_J[i] <- PO_W_shan_val[2]
+  
+  # wolves / Canis lupus
+  # # H
+  CN_S_shan_H[i] <- CN_S_shan_val[1]
+  CN_W_shan_H[i] <- CN_W_shan_val[1]
+  CO_S_shan_H[i] <- CO_S_shan_val[1]
+  CO_W_shan_H[i] <- CO_W_shan_val[1]
+  # # J
+  CN_S_shan_J[i] <- CN_S_shan_val[2]
+  CN_W_shan_J[i] <- CN_W_shan_val[2]
+  CO_S_shan_J[i] <- CO_S_shan_val[2]
+  CO_W_shan_J[i] <- CO_W_shan_val[2]
+  
+  # WTD/MD/Moose only (3 prey groups)
+  # cougars / Puma concolor
+  # PN_S_O_shan_val
+  # PN_W_O_shan_val
+  # PO_S_O_shan_val
+  # PO_W_O_shan_val
+  # 
+  # # wolves / Canis lupus
+  # CN_S_O_shan_val
+  # CN_W_O_shan_val
+  # CO_S_O_shan_val
+  # CO_W_O_shan_val
+  # 
+  print(i)
 }
 
-North_Sum[i] <- piankaind(wolfcoug_list[[1]], wolfcoug_list[[5]]) #0.678 Northeast Summer
-North_Wint[i] <- piankaind(wolfcoug_list[[2]], wolfcoug_list[[6]]) #0.858 Northeast Winter
-Okan_Sum[i] <- piankaind(wolfcoug_list[[3]], wolfcoug_list[[7]]) #0.855 Okanogan Summer
-Okan_Wint[i] <- piankaind(wolfcoug_list[[4]], wolfcoug_list[[8]]) #0.956 Okanogan Winter
+# check on the bootstrapping outputs ----
+# bootstrapped pianka value vectors
+North_Sum_pianka
+North_Wint_pianka
+Okan_Sum_pianka
+Okan_Wint_pianka
 
-}
+# bootstrapped %FO vectors by species
+PN_S_FO
+PN_W_FO
+PO_S_FO
+PO_W_FO
+CN_S_FO
+CN_W_FO
+CO_S_FO
+CO_W_FO
 
+# boostrapped shannon's index values (diversity - H and evenness - J)
+# cougars
+# # H
+PN_S_shan_H
+PN_W_shan_H
+PO_S_shan_H
+PO_W_shan_H
+# # J
+PN_S_shan_J
+PN_W_shan_J
+PO_S_shan_J
+PO_W_shan_J
+# wolves
+# # H
+CN_S_shan_H
+CN_W_shan_H
+CO_S_shan_H
+CO_W_shan_H
+# # J
+CN_S_shan_J
+CN_W_shan_J
+CO_S_shan_J
+CO_W_shan_J
 
-# now get mean and CI results
-conf_int <- function(piacka_v, confidence) {
-  # Standard deviation of sample
-  vec_sd <- sd(piacka_v)
-  # Sample size
-  n <- length(piacka_v)
-  # Mean of sample
-  vec_mean <- mean(piacka_v)
-  # Error according to t distribution
-  error <- qt((confidence + 1)/2, df = n - 1) * vec_sd / sqrt(n)
-  # Confidence interval as a vector
-  result <- c("lower" = vec_mean - error, "upper" = vec_mean + error)
-  return(result)
-}
+# save session workspace and outputs
+# save.image(file="Oct21.22_bs10000.RData")
+# reload session with bootstrapped output -----
+# load(file="Oct21.22_bs10000.RData")
 
-# nget means and CIs of bootstrap results
-mean(North_Sum)
-conf_int(North_Sum, 0.95)
-
-mean(North_Wint)
-conf_int(North_Wint, 0.95)
-
-mean(Okan_Sum)
-conf_int(Okan_Sum, 0.95)
-
-mean(Okan_Wint)
-conf_int(Okan_Wint, 0.95)
-
-conf_int(Okan_Wint, 0.95)[1] #lower
-conf_int(Okan_Wint, 0.95)[2] #upper
-
-# make a table of the bootstrap results
+# plot Pianka's index, Shannon's index, %FO from bootstrapping ----
+# # make a table of the bootstrap results
+# drop the _O at the end for pianka's calculated across the 11 prey species groups
+# add the _O at the end (eg North_Sum_O) for reduced prey categories (eg WTD, MD, Moose, Livestock)
+# plot pianka's index ----
 pianka_plot <-
   data.frame(
-    group = c('Northeast_Summer', 'Northeast_Winter', 'Okanogan_Summer', 'Okanogan_Winter'),
-    pianka_mean = c(
-      mean(North_Sum),
-      mean(North_Wint),
-      mean(Okan_Sum),
-      mean(Okan_Wint)
+    group = c(
+      'Northeast Summer',
+      'Northeast Winter',
+      'Okanogan Summer',
+      'Okanogan Winter'
     ),
+    pianka_mean = c(
+      mean(North_Sum_pianka),
+      mean(North_Wint_pianka),
+      mean(Okan_Sum_pianka),
+      mean(Okan_Wint_pianka)
+    ),
+    # lower = c(
+    #   mean(North_Sum_O) - 1.96*sd(North_Sum_O),
+    #   mean(North_Wint_O)  - 1.96*sd(North_Wint_O),
+    #   mean(Okan_Sum_O) - 1.96*sd(Okan_Sum_O),
+    #   mean(Okan_Wint_O) - 1.96*sd(Okan_Wint_O)
+    # ),
+    # upper = c(
+    #   mean(North_Sum_O) + 1.96*sd(North_Sum_O),
+    #   mean(North_Wint_O)  + 1.96*sd(North_Wint_O),
+    #   mean(Okan_Sum_O) + 1.96*sd(Okan_Sum_O),
+    #   mean(Okan_Wint_O) + 1.96*sd(Okan_Wint_O)
+    # )
     lower = c(
-      conf_int(North_Sum, 0.95)[1], 
-      conf_int(North_Wint, 0.95)[1],
-      conf_int(Okan_Sum, 0.95)[1],
-      conf_int(Okan_Wint, 0.95)[1]
-    
-    ), 
+      quantile(North_Sum_pianka, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(North_Wint_pianka, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(Okan_Sum_pianka, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(Okan_Wint_pianka, probs = c(0, 0.025, 0.975, 1))[2]
+      
+    ),
     upper = c(
-      conf_int(North_Sum, 0.95)[2], 
-      conf_int(North_Wint, 0.95)[2],
-      conf_int(Okan_Sum, 0.95)[2],
-      conf_int(Okan_Wint, 0.95)[2]
+      quantile(North_Sum_pianka, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(North_Wint_pianka, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(Okan_Sum_pianka, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(Okan_Wint_pianka, probs = c(0, 0.025, 0.975, 1))[3]
       
     )
     
   )
-pianka_plot
 
+    # values for Pianka'a table (Tbl. B1) in supplement ----
+        pianka_plot$season <- c("Summer", "Winter", "Summer", "Winter")
+        pianka_plot
+
+    # plot for Pianka's results plot (Fig. 4) in paper ----
+    # plot the results
+    ggplot(pianka_plot, aes(x=group, y=pianka_mean, color=season)) +
+      # geom_bar(
+      #   aes(x = group, y = pianka_mean),
+      #   stat = "identity",
+      #   fill = c("firebrick", "skyblue", "firebrick", "skyblue"),
+      #   alpha = 0.7
+      # ) +
+      geom_point(size = 5, color = c("firebrick", "skyblue", "firebrick", "skyblue")) +
+      geom_errorbar(
+        aes(x = group, ymin = lower, ymax = upper),
+        width = 0.4,
+        colour = c("firebrick", "skyblue", "firebrick", "skyblue"),
+        alpha = 0.9,
+        size = 1.3
+      ) + 
+      theme_bw()+
+      theme(axis.text = element_text(size = 15)) +  # x axis subgroups
+      theme(axis.title = element_text(size = 15)) + # y axis text
+      theme(text = element_text(size = 15)) + # all plot text including numbers
+      ggtitle("") + ylab("Pianka's Index (Mean)") + xlab("")
+
+
+# plot the %FO results from the bootstrap estimates (w/ error bars)
+
+        
+        
+        
+        
+        
+
+# plot Shannon's H - diversity index values ----
+shannon_H_plot <-
+  data.frame(
+    group = c(
+      'NE Sum (Cougar)',
+      'NE Sum (Wolf)',
+      'NE Win (Cougar)',
+      'NE Win (Wolf)',
+      'OK Sum (Cougar)',
+      'Ok Sum (Wolf)',
+      'OK Win (Cougar)',
+      'OK Win (Wolf)'
+    ),
+    shannon_mean = c(
+      mean(PN_S_shan_H),
+      mean(CN_S_shan_H),
+      mean(PN_W_shan_H),
+      mean(CN_W_shan_H),
+      mean(PO_S_shan_H),
+      mean(CO_S_shan_H),
+      mean(PO_W_shan_H),
+      mean(CO_W_shan_H)
+    ),
+    lower = c(
+      quantile(PN_S_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CN_S_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(PN_W_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CN_W_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(PO_S_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CO_S_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(PO_W_shan_H, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CO_W_shan_H, probs = c(0, 0.025, 0.975, 1))[2]
+      
+    ),
+    upper = c(
+      quantile(PN_S_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CN_S_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(PN_W_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CN_W_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(PO_S_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CO_S_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(PO_W_shan_H, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CO_W_shan_H, probs = c(0, 0.025, 0.975, 1))[3]
+      
+    )
+    
+  )
+
+# values for Shannon's H table (Tbl. B2) in supplement ----
+shannon_H_plot
+
+# plot for Shannon's H results plot (Fig. 5) in paper ----
 # plot the results
-ggplot(pianka_plot) +
-  geom_bar( aes(x=group, y=pianka_mean), stat="identity", fill= c("firebrick", "skyblue", "firebrick", "skyblue"), alpha=0.7) +
-  geom_errorbar( aes(x=group, ymin=lower, ymax=upper), width=0.4, colour="orange", alpha=0.9, size=1.3)
+ggplot(shannon_H_plot) +
+  geom_bar(
+    aes(x = group, y = shannon_mean),
+    stat = "identity",
+    fill = c("firebrick", "firebrick", "skyblue", "skyblue", "firebrick", "firebrick", "skyblue", "skyblue"),
+    alpha = 0.7
+  ) +
+  geom_errorbar(
+    aes(x = group, ymin = lower, ymax = upper),
+    width = 0.4,
+    colour = "orange",
+    alpha = 0.9,
+    size = 1.3
+  ) + ggtitle("") + ylab("Shannon's H Index (Mean) \n") + xlab("")
+
+# plot Shannon's J - evenness index values ----
+shannon_J_plot <-
+  data.frame(
+    group = c(
+      'NE Sum (Cougar)',
+      'NE Sum (Wolf)',
+      'NE Win (Cougar)',
+      'NE Win (Wolf)',
+      'OK Sum (Cougar)',
+      'Ok Sum (Wolf)',
+      'OK Win (Cougar)',
+      'OK Win (Wolf)'
+    ),
+    shannon_mean = c(
+      mean(PN_S_shan_J),
+      mean(CN_S_shan_J),
+      mean(PN_W_shan_J),
+      mean(CN_W_shan_J),
+      mean(PO_S_shan_J),
+      mean(CO_S_shan_J),
+      mean(PO_W_shan_J),
+      mean(CO_W_shan_J)
+    ),
+    lower = c(
+      quantile(PN_S_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CN_S_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(PN_W_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CN_W_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(PO_S_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CO_S_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(PO_W_shan_J, probs = c(0, 0.025, 0.975, 1))[2],
+      quantile(CO_W_shan_J, probs = c(0, 0.025, 0.975, 1))[2]
+      
+    ),
+    upper = c(
+      quantile(PN_S_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CN_S_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(PN_W_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CN_W_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(PO_S_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CO_S_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(PO_W_shan_J, probs = c(0, 0.025, 0.975, 1))[3],
+      quantile(CO_W_shan_J, probs = c(0, 0.025, 0.975, 1))[3]
+      
+    )
+    
+  )
+
+# values for Shannon's table (XXXX) in ???? ----
+shannon_J_plot
+
+# plot for Pianka's results plot (Fig. 4) in paper ----
+# plot the results
+ggplot(shannon_J_plot) +
+  geom_bar(
+    aes(x = group, y = shannon_mean),
+    stat = "identity",
+    fill = c("firebrick", "firebrick", "skyblue", "skyblue", "firebrick", "firebrick", "skyblue", "skyblue"),
+    alpha = 0.7
+  ) +
+  geom_errorbar(
+    aes(x = group, ymin = lower, ymax = upper),
+    width = 0.4,
+    colour = "orange",
+    alpha = 0.9,
+    size = 1.3
+  ) + ggtitle("") + ylab("Shannon's J Index (Mean) \n") + xlab("")
 
 
-# now use this formatted data to calculate the bootstrapped Pianka's index for each studyarea/season pair
-# https://search.r-project.org/CRAN/refmans/spaa/html/niche.overlap.boot.html
+# now open and use the "overlap_diversity_indices.R" code ----
+# this is used to make the Shannons vs Pianka's plots for Shannon's H and J
+# then continue below
 
-library(spaa)
+# COMMMENTED OUT BELOW SINCE THIS IS PIANKA'S AND SHANNONS'S FOR WTD, MD, ELK ONLY ----
+# # run bootstrap iterations on WTD, MD, Elk, Moose, Livestock and everything else combined into "Other" 
+# # now reassign WTD/MD based on proportion and then bootstrap the dataset once
+# # do this a set number of times
+# # output a vector of pianka values
+# North_Sum_O <- c()
+# North_Wint_O <- c()
+# Okan_Sum_O <- c()
+# Okan_Wint_O <- c()
+# 
+# for (i in 1:25) {
+#   # ok now use the function to generate outputs for each  of the eight groups (carnivore, studyarea, season) and then rowbind to merge
+#   # wolves
+#   out_CN_S <-
+#     deerloop(carnivore = "Canis lupus",
+#              studyarea = "Northeast",
+#              season = "Summer")
+#   out_CN_W <-
+#     deerloop(carnivore = "Canis lupus",
+#              studyarea = "Northeast",
+#              season = "Winter")
+#   out_CO_S <-
+#     deerloop(carnivore = "Canis lupus",
+#              studyarea = "Okanogan",
+#              season = "Summer")
+#   out_CO_W <-
+#     deerloop(carnivore = "Canis lupus",
+#              studyarea = "Okanogan",
+#              season = "Winter")
+#   # cougars
+#   out_PN_S <-
+#     deerloop(carnivore = "Puma concolor",
+#              studyarea = "Northeast",
+#              season = "Summer")
+#   out_PN_W <-
+#     deerloop(carnivore = "Puma concolor",
+#              studyarea = "Northeast",
+#              season = "Winter")
+#   out_PO_S <-
+#     deerloop(carnivore = "Puma concolor",
+#              studyarea = "Okanogan",
+#              season = "Summer")
+#   out_PO_W <-
+#     deerloop(carnivore = "Puma concolor",
+#              studyarea = "Okanogan",
+#              season = "Winter")
+#   
+#   # now combine into a new dataframe
+#   data_new <-
+#     rbind(out_CN_S,
+#           out_CN_W,
+#           out_CO_S,
+#           out_CO_W,
+#           out_PN_S,
+#           out_PN_W,
+#           out_PO_S,
+#           out_PO_W)
+#   
+#   # now calculate percent frequency of occurrence by scat sample
+#   
+#   # having a problem where the function drops prey categories with no entries - testing code below to try to keep/add back zero columns for missing prey categories
+#   # https://stackoverflow.com/questions/55024338/add-missing-columns-from-different-data-frame-filled-with-0
+#   # use the FO_funct from earlier to subset data and create columns by species group
+#   # first define the prey categories for the function call
+#   preynames <- c("muledeer",
+#                  "whitetaileddeer",
+#                  "moose")
+#   
+#   # create dataframes for all combinations that include zero columns for prey categories not recorded
+#   FO_PN_S <-
+#     FO_funct(data_new, preynames, 'Puma concolor', 'Northeast', 'Summer')
+#   FO_PN_W <-
+#     FO_funct(data_new, preynames, "Puma concolor", "Northeast", "Winter")
+#   FO_PO_S <-
+#     FO_funct(data_new, preynames, "Puma concolor", "Okanogan", "Summer")
+#   FO_PO_W <-
+#     FO_funct(data_new, preynames, "Puma concolor", "Okanogan", "Winter")
+#   FO_CN_S <-
+#     FO_funct(data_new, preynames, "Canis lupus", "Northeast", "Summer")
+#   FO_CN_W <-
+#     FO_funct(data_new, preynames, "Canis lupus", "Northeast", "Winter")
+#   FO_CO_S <-
+#     FO_funct(data_new, preynames, "Canis lupus", "Okanogan", "Summer")
+#   FO_CO_W <-
+#     FO_funct(data_new, preynames, "Canis lupus", "Okanogan", "Winter")
+#   
+#   # create a list of the dataframes
+#   # could save this list below to a .csv for Shannon's index and %FO confidence intervals
+#   wolfcoug_list_other <-
+#     list(FO_PN_S,
+#          FO_PN_W,
+#          FO_PO_S,
+#          FO_PO_W,
+#          FO_CN_S,
+#          FO_CN_W,
+#          FO_CO_S,
+#          FO_CO_W) %>%
+#     set_names(
+#       c(
+#         'FO_PN_S',
+#         'FO_PN_W',
+#         'FO_PO_S',
+#         'FO_PO_W',
+#         'FO_CN_S',
+#         'FO_CN_W',
+#         'FO_CO_S',
+#         'FO_CO_W'
+#       )
+#     )
+#   
+#   library(dplyr)
+#   library(purrr)
+#   library(data.table)
+#   
+#   # calculating pianka's index using code from above inside a function
+#   # cougdata <- wolfcoug_list[[1]] #cougar northeast summer
+#   # wolfdata <- wolfcoug_list[[2]] #wolf northeast summer
+#   #
+#   
+#   piankaind <- function(cougdata, wolfdata) {
+#     coug_sum <- cougdata %>% select_if(is.numeric) %>% map_dbl(sum)
+#     coug_sum$PreyItems <- rownames(coug_sum) # make rows columns
+#     coug_sum <- as.data.frame(coug_sum)
+#     
+#     wolf_sum <- wolfdata %>% select_if(is.numeric) %>% map_dbl(sum)
+#     wolf_sum$PreyItems <- rownames(wolf_sum) # make rows columns
+#     wolf_sum <- as.data.frame(wolf_sum)
+#     
+#     #combine into one dataframe
+#     P_Index <- rbind(coug_sum, wolf_sum)
+#     
+#     # pull vector data for Pianka's index
+#     coug <- P_Index[1, 1:ncol(P_Index)]
+#     wolf <- P_Index[2, 1:ncol(P_Index)]
+#     
+#     
+#     # get vectors of PreyItem counts by carnivore
+#     coug_v <- coug %>% as.numeric(coug)
+#     wolf_v <- wolf %>% as.numeric(wolf)
+#     # convert to proportion values
+#     coug_vp <- coug_v / sum(coug_v)
+#     wolf_vp <- wolf_v / sum(wolf_v)
+#     
+#     # square proportion values
+#     coug_vp2 <- (coug_vp) ^ 2
+#     wolf_vp2 <- (wolf_vp) ^ 2
+#     
+#     piankaout <-
+#       sum(coug_vp * wolf_vp) / sqrt(sum(coug_vp2) * sum(wolf_vp2))
+#     return(piankaout)
+#   }
+#   
+#   North_Sum_O[i] <-
+#     piankaind(wolfcoug_list_other[[1]], wolfcoug_list_other[[5]]) #0.678 Northeast Summer
+#   North_Wint_O[i] <-
+#     piankaind(wolfcoug_list_other[[2]], wolfcoug_list_other[[6]]) #0.858 Northeast Winter
+#   Okan_Sum_O[i] <-
+#     piankaind(wolfcoug_list_other[[3]], wolfcoug_list_other[[7]]) #0.855 Okanogan Summer
+#   Okan_Wint_O[i] <-
+#     piankaind(wolfcoug_list_other[[4]], wolfcoug_list_other[[8]]) #0.956 Okanogan Winter
+#   
+# }
+# 
+# # save as a microsoft word .xlsx file with a tab for each scenario 
+# # library(xlsx)
+# # file <- paste("Output/wolfcoug_list_binaryprey_wtd_md_moose_only.xlsx", sep = "")
+# # # write to xlsx
+# # write.xlsx(wolfcoug_list_other[[1]], file, sheetName = "FO_PN_S")
+# # write.xlsx(wolfcoug_list_other[[2]], file, sheetName = "FO_PN_W", append = TRUE)
+# # write.xlsx(wolfcoug_list_other[[3]], file, sheetName = "FO_PO_S", append = TRUE)
+# # write.xlsx(wolfcoug_list_other[[4]], file, sheetName = "FO_PO_W", append = TRUE)
+# # write.xlsx(wolfcoug_list_other[[5]], file, sheetName = "FO_CN_S", append = TRUE)
+# # write.xlsx(wolfcoug_list_other[[6]], file, sheetName = "FO_CN_W", append = TRUE)
+# # write.xlsx(wolfcoug_list_other[[7]], file, sheetName = "FO_CO_S", append = TRUE)
+# # write.xlsx(wolfcoug_list_other[[8]], file, sheetName = "FO_CO_W", append = TRUE)
+# 
+# # calculate Pianka's index 
+# 
+# # make a table of the bootstrap results
+# # drop the _O at the end for pianka's calculated across the 11 prey species groups
+# # add the _O at the end (eg North_Sum_O) for reduced prey categories (eg WTD, MD, Moose, Livestock)
+# pianka_plot <-
+#   data.frame(
+#     group = c(
+#       'Northeast Summer',
+#       'Northeast Winter',
+#       'Okanogan Summer',
+#       'Okanogan Winter'
+#     ),
+#     pianka_mean = c(
+#       mean(North_Sum_pianka),
+#       mean(North_Wint_pianka),
+#       mean(Okan_Sum_pianka),
+#       mean(Okan_Wint_pianka)
+#     ),
+#     # lower = c(
+#     #   conf_int(North_Sum_pianka, 0.95)[1],
+#     #   conf_int(North_Wint_pianka, 0.95)[1],
+#     #   conf_int(Okan_Sum_pianka, 0.95)[1],
+#     #   conf_int(Okan_Wint_pianka, 0.95)[1]
+#     #
+#     # ),
+#     # upper = c(
+#     #   conf_int(North_Sum_pianka, 0.95)[2],
+#     #   conf_int(North_Wint_pianka, 0.95)[2],
+#     #   conf_int(Okan_Sum_pianka, 0.95)[2],
+#     #   conf_int(Okan_Wint_pianka, 0.95)[2]
+#     #
+#     # )
+#     # lower = c(
+#     #   quantile(North_Sum_pianka, probs = c(0,0.025, 0.975, 1))[2],
+#     #   quantile(North_Wint_pianka, probs = c(0,0.025, 0.975, 1))[2],
+#     #   quantile(Okan_Sum_pianka, probs = c(0,0.025, 0.975, 1))[2],
+#     #   quantile(Okan_Wint_pianka, probs = c(0,0.025, 0.975, 1))[2]
+#     #
+#     # ),
+#     # upper = c(
+#     #   quantile(North_Sum_pianka, probs = c(0,0.025, 0.975, 1))[3],
+#     #   quantile(North_Wint_pianka, probs = c(0,0.025, 0.975, 1))[3],
+#     #   quantile(Okan_Sum_pianka, probs = c(0,0.025, 0.975, 1))[3],
+#     #   quantile(Okan_Wint_pianka, probs = c(0,0.025, 0.975, 1))[3]
+#     #
+#     # )
+#     # lower = c(
+#     #   mean(North_Sum_O) - 1.96*sd(North_Sum_O),
+#     #   mean(North_Wint_O)  - 1.96*sd(North_Wint_O),
+#     #   mean(Okan_Sum_O) - 1.96*sd(Okan_Sum_O),
+#     #   mean(Okan_Wint_O) - 1.96*sd(Okan_Wint_O)
+#     # ),
+#     # upper = c(
+#     #   mean(North_Sum_O) + 1.96*sd(North_Sum_O),
+#     #   mean(North_Wint_O)  + 1.96*sd(North_Wint_O),
+#     #   mean(Okan_Sum_O) + 1.96*sd(Okan_Sum_O),
+#     #   mean(Okan_Wint_O) + 1.96*sd(Okan_Wint_O)
+#     # )
+#     lower = c(
+#       quantile(North_Sum_pianka, probs = c(0, 0.05, 0.95, 1))[2],
+#       quantile(North_Wint_pianka, probs = c(0, 0.05, 0.95, 1))[2],
+#       quantile(Okan_Sum_pianka, probs = c(0, 0.05, 0.95, 1))[2],
+#       quantile(Okan_Wint_pianka, probs = c(0, 0.05, 0.95, 1))[2]
+#       
+#     ),
+#     upper = c(
+#       quantile(North_Sum_pianka, probs = c(0, 0.05, 0.95, 1))[3],
+#       quantile(North_Wint_pianka, probs = c(0, 0.05, 0.95, 1))[3],
+#       quantile(Okan_Sum_pianka, probs = c(0, 0.05, 0.95, 1))[3],
+#       quantile(Okan_Wint_pianka, probs = c(0, 0.05, 0.95, 1))[3]
+#       
+#     )
+#     
+#   )
+# pianka_plot
+# 
+# # plot the results
+# ggplot(pianka_plot) +
+#   geom_bar(
+#     aes(x = group, y = pianka_mean),
+#     stat = "identity",
+#     fill = c("firebrick", "skyblue", "firebrick", "skyblue"),
+#     alpha = 0.7
+#   ) +
+#   geom_errorbar(
+#     aes(x = group, ymin = lower, ymax = upper),
+#     width = 0.4,
+#     colour = "orange",
+#     alpha = 0.9,
+#     size = 1.3
+#   ) + ggtitle("") + ylab("Pianka's Index (Mean)") + xlab("")
+# 
+# # calculate Shannon's diversity index 
+# 
+# # create dataframes for each species/study area combo
+# # all 11 prey categories
+# # # cougars / Puma concolor
+# PN_S <- wolfcoug_list[[1]]
+# PN_W <- wolfcoug_list[[2]]
+# PO_S <- wolfcoug_list[[3]]
+# PO_W <- wolfcoug_list[[4]]
+# 
+# # wolves / Canis lupus
+# CN_S <- wolfcoug_list[[5]]
+# CN_W <- wolfcoug_list[[6]]
+# CO_S <- wolfcoug_list[[7]]
+# CO_W <- wolfcoug_list[[8]]
+# 
+# # WTD / MD / Moose only (3 prey categories)
+# # cougars / Puma concolor
+# PN_S_O <- wolfcoug_list_other[[1]]
+# PN_W_O <- wolfcoug_list_other[[2]]
+# PO_S_O <- wolfcoug_list_other[[3]]
+# PO_W_O <- wolfcoug_list_other[[4]]
+# 
+# # wolves / Canis lupus
+# CN_S_O <- wolfcoug_list_other[[5]]
+# CN_W_O <- wolfcoug_list_other[[6]]
+# CO_S_O <- wolfcoug_list_other[[7]]
+# CO_W_O <- wolfcoug_list_other[[8]]
+# 
+# # now divide the column sums by the total number of scats (number of rows) to get the percent frequency of occurrence
+# # write a function to calculate the %FO to get bootstrapped data prepared for calculation of shannon's index
+# FO_spp_shan <-
+#   function(data_shan,
+#            depositorspp,
+#            studyarea,
+#            season) {
+#     # test criteria
+#     data_shan <- PN_S_O
+#     depositorspp <- 'Puma concolor'
+#     studyarea <- 'Northeast'
+#     season <- 'Summer'
+#     
+#     # first calcuate
+#     FO_shan <- subset (data_shan, select = -SampleID)
+#     FO_spp_shan <- sapply(FO_shan, sum)
+#     
+#     FO_spp_shan <- FO_spp_shan / as.integer(nrow(FO_shan))
+#     FO_spp_shan <- stack(FO_spp_shan)
+#     FO_spp_shan <- as.data.frame(FO_spp_shan)
+#     colnames(FO_spp_shan) <- c("Pct_FO", "PreyItem")
+#     FO_spp_shan <- FO_spp_shan[c("PreyItem", "Pct_FO")]
+#     FO_spp_shan <-
+#       FO_spp_shan %>% mutate(StudyArea = studyarea, .before = PreyItem) %>% mutate(DepositorSpp = depositorspp, .before = StudyArea) %>% mutate(Season = season, .after = StudyArea)
+#     
+#   }
+# 
+# # now run the shannon filter on all our prey datasets
+# # all 11 prey categories
+# # # cougars / Puma concolor
+# PN_S_shan <-
+#   FO_spp_shan(PN_S, 'Puma concolor', 'Northeast', 'Summer')
+# PN_W_shan <-
+#   FO_spp_shan(PN_W, 'Puma concolor', 'Northeast', 'Winter')
+# PO_S_shan <-
+#   FO_spp_shan(PO_S, 'Puma concolor', 'Okanogan', 'Summer')
+# PO_W_shan <-
+#   FO_spp_shan(PO_W, 'Puma concolor', 'Okanogan', 'Winter')
+# 
+# # wolves / Canis lupus
+# CN_S_shan <- FO_spp_shan(CN_S, 'Canis lupus', 'Northeast', 'Summer')
+# CN_W_shan <- FO_spp_shan(CN_W, 'Canis lupus', 'Northeast', 'Winter')
+# CO_S_shan <- FO_spp_shan(CO_S, 'Canis lupus', 'Okanogan', 'Summer')
+# CO_W_shan <- FO_spp_shan(CO_W, 'Canis lupus', 'Okanogan', 'Winter')
+# 
+# # WTD / MD / Moose only (3 prey categories)
+# # cougars / Puma concolor
+# PN_S_O_shan <-
+#   FO_spp_shan(PN_S_O, 'Puma concolor', 'Northeast', 'Summer')
+# PN_W_O_shan <-
+#   FO_spp_shan(PN_W_O, 'Puma concolor', 'Northeast', 'Winter')
+# PO_S_O_shan <-
+#   FO_spp_shan(PO_S_O, 'Puma concolor', 'Okanogan', 'Summer')
+# PO_W_O_shan <-
+#   FO_spp_shan(PO_W_O, 'Puma concolor', 'Okanogan', 'Winter')
+# 
+# # wolves / Canis lupus
+# CN_S_O_shan <-
+#   FO_spp_shan(CN_S_O, 'Canis lupus', 'Northeast', 'Summer')
+# CN_W_O_shan <-
+#   FO_spp_shan(CN_W_O, 'Canis lupus', 'Northeast', 'Winter')
+# CO_S_O_shan <-
+#   FO_spp_shan(CO_S_O, 'Canis lupus', 'Okanogan', 'Summer')
+# CO_W_O_shan <-
+#   FO_spp_shan(CO_W_O, 'Canis lupus', 'Okanogan', 'Winter')
+# 
+# # function "shannon"
+# ? shannon()
+# #test shannon's on my data - just need each resource category and the proportion
+# shan_dat <- PN_S_shan[, 5]
+# shan_dat <- as.data.frame(shan_dat)
+# shan_dat <- as.numeric(unlist(shan_dat))
+# class(shan_dat)
+# shannon(shan_dat, base = exp(1))
+# 
+# # create a function
+# shannon_index <- function(data) {
+#   shan_dat <- data[, 5]
+#   shan_dat <- as.data.frame(shan_dat)
+#   shan_dat <- as.numeric(unlist(shan_dat))
+#   class(shan_dat)
+#   shannon(shan_dat, base = exp(2))
+#   
+# }
+# 
+# # now use the formatted data to calculate shannon's index
+# # all 1 prey species groups
+# # cougars / Puma concolor
+# PN_S_shan_val <- shannon_index(PN_S_shan)
+# PN_W_shan_val <- shannon_index(PN_W_shan)
+# PO_S_shan_val <- shannon_index(PO_S_shan)
+# PO_W_shan_val <- shannon_index(PO_W_shan)
+# 
+# # wolves / Canis lupus
+# CN_S_shan_val <- shannon_index(CN_S_shan)
+# CN_W_shan_val <- shannon_index(CN_W_shan)
+# CO_S_shan_val <- shannon_index(CO_S_shan)
+# CO_W_shan_val <- shannon_index(CO_W_shan)
+# 
+# # WTD/MD/Moose only (3 prey groups)
+# # cougars / Puma concolor
+# PN_S_O_shan_val <- shannon_index(PN_S_O_shan)
+# PN_W_O_shan_val <- shannon_index(PN_W_O_shan)
+# PO_S_O_shan_val <- shannon_index(PO_S_O_shan)
+# PO_W_O_shan_val <- shannon_index(PO_W_O_shan)
+# 
+# # wolves / Canis lupus
+# CN_S_O_shan_val <- shannon_index(PN_S_O_shan)
+# CN_W_O_shan_val <- shannon_index(PN_W_O_shan)
+# CO_S_O_shan_val <- shannon_index(PO_S_O_shan)
+# CO_W_O_shan_val <- shannon_index(PO_W_O_shan)
+# 
+# # now get Shannons diversity - H [1] and evenness - J [2] values
+# 
+# # first create dataframe for the values
+# AllPrey_Shannon <- data.frame()
+# WildPrey_Shannon <- data.frame()
+# 
+# # fill out column values
+# AllPrey_Shannon %>% mutate(
+#   Depositor_DNA = c(
+#     'Puma concolor',
+#     'Puma concolor',
+#     'Puma concolor',
+#     'Puma concolor',
+#     'Canis lupus',
+#     'Canis lupus',
+#     'Canis lupus',
+#     'Canis lupus'
+#   )
+# )
+# 
+# 
+# AllPrey_Shannon$StudyArea <-
+#   c(
+#     'Northeast',
+#     'Northeast',
+#     'Okanogan',
+#     'Okanogan',
+#     'Northeast',
+#     'Northeast',
+#     'Okanogan',
+#     'Okanogan'
+#   )
+# AllPrey_Shannon$Season <-
+#   c('Summer',
+#     'Winter',
+#     'Summer',
+#     'Winter',
+#     'Summer',
+#     'Winter',
+#     'Summer',
+#     'Winter')
+# 
+# # all 1 prey species groups
+# # cougars / Puma concolor
+# PN_S_shan_val[1]
+# PN_W_shan_val
+# PO_S_shan_val
+# PO_W_shan_val
+# 
+# # wolves / Canis lupus
+# CN_S_shan_val
+# CN_W_shan_val
+# CO_S_shan_val
+# CO_W_shan_val
+# 
+# # WTD/MD/Moose only (3 prey groups)
+# # cougars / Puma concolor
+# PN_S_O_shan_val
+# PN_W_O_shan_val
+# PO_S_O_shan_val
+# PO_W_O_shan_val
+# 
+# # wolves / Canis lupus
+# CN_S_O_shan_val
+# CN_W_O_shan_val
+# CO_S_O_shan_val
+# CO_W_O_shan_val
+# 
 
-# example of niche.overlap.boot from R documentation
-data(datasample)
+# # END OF FORMATTED CODE ------------------------------------------------
 
-NortheastSummer <-niche.overlap.boot(datasample[, 1:4], method = "pianka")
-
-
-# example of niche.overlap.boot.pair from R documentation
-niche.overlap.boot.pair(datasample[, 1], datasample[, 2], method = "levins")
-
-# now for our data
-
-niche.overlap.boot(
-  FO_PN_S[, 2],
-  method = "pianka",
-  times = 100,
-  quant = c(0.025, 0.975)
-)
-
-# small_mammal
-nichedata1 <-
-  FO_PN_S$whitetaileddeer # Cougar (Puma concolor) Northeast Summer
-nichedata2 <-
-  FO_CN_S$whitetaileddeer # Wolf (Canis lupus) Northeast Summer
-niche.overlap.boot.pair(nichedata1, nichedata2, method = "pianka")
-
-###########################
-# STARTING POINT FOR THURSDAY
-###########################
-# https://stackoverflow.com/questions/32940822/bootstrapping-data-frame-columns-independently-in-r
-# replicate(1000, sapply(example.df, function(x)
-metric.function(sample(x, replace = TRUE))))
-
-# Ok what you need to do is create your species/studyarea/season dataframes (with rand_prop_deer filled out) and merge into data_new. **** Save this as an output file so you don't have to keep randomly selecting the "deerunkspp" deer **** Or consider re-running the random deer selection as part of the bootstrapping, but I think we don't want to do this because then we're bootstrapping different datasets essentially ####
-# Then replicate the full dataset size (all rows) with replacement however many times ) eg 1000 - make sure to turn that column into a factor first so all columns are retained even if there are zero detections of that species in that data subset
-# then get proportion categories for prey species ***of all datasets*** to prepare to calculate pianka's index - do this for wolves and cougars within a studyarea/season
-# for each pair (wolf vs cougar within studyarea/season), drop any categories that are zero for both (or try with and without to see if it matters)
-# calculate Pianka's index for all the bootstrapped datasets - rows are prey species categories and columns are either wolf or cougar
-# Find mean and 95% confidence interval of the set of pianka's indices
-# link below explains how to calculate a mean and CI from a simple vector
-# https://stackoverflow.com/questions/48612153/how-to-calculate-confidence-intervals-for-a-vector
-
-###########################
+# # Plot %FO for all species ----
 data <-
   data_new #reassign to "data" because I'm too lazy to change the varible in the following code
 head(data_new)
@@ -719,10 +1617,14 @@ PO <- Pct_FO(data, "Puma concolor", "Okanogan")
 CN <- Pct_FO(data, "Canis lupus", "Northeast")
 CO <- Pct_FO(data, "Canis lupus", "Okanogan")
 # combine dataframes
-FO_spp_all <- rbind(PN_S, PN_W)
+FO_spp_all <- rbind(PN_S_FO, PN_W_FO)
 # plot
 # https://community.rstudio.com/t/help-with-making-plot-with-multiple-columns/50763/2
 # by depositor species
+# 
+
+# # START HERE ON 10/21/22 - USE THE BOOTSTRAPPED ESTIMATES FROM ABOVE TO CREATE %FO PLOTS ----
+# ###################################
 ggplot(FO_spp_all, aes(DepositorSpp, Pct_FO, fill = PreyItem)) + geom_col(position = "dodge")
 
 # combine dataframes
@@ -872,7 +1774,7 @@ g2$PreyItem <-
     )
   )
 # reorder dataframe
-g2 <- with(g2, g2[order(PreyItem), ])
+g2 <- with(g2, g2[order(PreyItem),])
 # set factor levels
 g1$PreyItem <-
   factor(
@@ -892,7 +1794,7 @@ g1$PreyItem <-
       'other'
     )
   )
-g1 <- with(g1, g1[order(PreyItem), ])
+g1 <- with(g1, g1[order(PreyItem),])
 
 piankabio(g1, g2)
 piankabioboot(g1, g2, B = 1000, probs = c(0.025, 0.975))
@@ -1591,7 +2493,8 @@ null <- vegan::adonis2(forage ~ 1, data = forage)
 speciesmod <- vegan::adonis2(forage ~ species, data = forage)
 samod <- vegan::adonis2(forage ~ sa, data = forage)
 linmod <- vegan::adonis2(forage ~ species + sa, data = forage)
-full <- vegan::adonis2(forage ~ species + sa + species:sa, data = forage)
+full <-
+  vegan::adonis2(forage ~ species + sa + species:sa, data = forage)
 
 tabs <- rbind(
   unlist(AICc.PERMANOVA2(null)) ,
@@ -1720,7 +2623,7 @@ abline(v = 0, lty = "dotted")
 
 
 #Cougar - Okanogan vs Northeast
-with(forage, points(ind.nmds$points[species.sa == "Cougar Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "Cougar Okanogan",],
                     pch = 3))
 with(forage, points(
   cbind(mean(ind.nmds$points[species.sa == "Cougar Okanogan", 1]),
@@ -1729,7 +2632,7 @@ with(forage, points(
   lwd = 1,
   cex = 2
 ))
-with(forage, points(ind.nmds$points[species.sa == "Cougar Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "Cougar Northeast",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Cougar Northeast", 1]),
@@ -1750,14 +2653,14 @@ title(xlab = "NMDS 1", ylab = "NMDS 2", main = "Cougar (Okanogan vs. Northeast)"
 box()
 
 #Wolf - Okanogan vs Northeast
-with(forage, points(ind.nmds$points[species.sa == "Wolf Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "Wolf Okanogan",],
                     pch = 3))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Wolf Okanogan", 1]),
   mean(ind.nmds$points[species.sa == "Wolf Okanogan", 2])
 ),
 pch = 13, cex = 2))
-with(forage, points(ind.nmds$points[species.sa == "Wolf Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "Wolf Northeast",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Wolf Northeast", 1]),
@@ -1778,14 +2681,14 @@ title(xlab = "NMDS 1", ylab = "NMDS 2", main = "Wolf (Okanogan vs. Northeast)")
 box()
 
 #Bear - Okanogan vs Northeast
-with(forage, points(ind.nmds$points[species.sa == "BlackBear Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "BlackBear Okanogan",],
                     pch = 3))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "BlackBear Okanogan", 1]),
   mean(ind.nmds$points[species.sa == "BlackBear Okanogan", 2])
 ),
 pch = 13, cex = 2))
-with(forage, points(ind.nmds$points[species.sa == "BlackBear Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "BlackBear Northeast",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "BlackBear Northeast", 1]),
@@ -1806,7 +2709,7 @@ title(xlab = "NMDS 1", ylab = "NMDS 2", main = "Black Bear (Okanogan vs. Northea
 box()
 
 #Northeast - Cougar vs Wolf vs Bear
-with(forage, points(ind.nmds$points[species.sa == "Cougar Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "Cougar Northeast",],
                     pch = 3))
 with(forage, points(
   cbind(mean(ind.nmds$points[species.sa == "Cougar Northeast", 1]),
@@ -1815,14 +2718,14 @@ with(forage, points(
   lwd = 1,
   cex = 2
 ))
-with(forage, points(ind.nmds$points[species.sa == "Wolf Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "Wolf Northeast",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Wolf Northeast", 1]),
   mean(ind.nmds$points[species.sa == "Wolf Northeast", 2])
 ),
 pch = 14, cex = 2))
-with(forage, points(ind.nmds$points[species.sa == "BlackBear Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "BlackBear Northeast",],
                     pch = 0))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "BlackBear Northeast", 1]),
@@ -1843,7 +2746,7 @@ title(xlab = "NMDS 1", ylab = "NMDS 2", main = "Northeast (Cougar vs. Wolf vs. B
 box()
 
 #Okanogan - Cougar vs Wolf vs Black Bear
-with(forage, points(ind.nmds$points[species.sa == "Cougar Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "Cougar Okanogan",],
                     pch = 3))
 with(forage, points(
   cbind(mean(ind.nmds$points[species.sa == "Cougar Okanogan", 1]),
@@ -1852,14 +2755,14 @@ with(forage, points(
   lwd = 1,
   cex = 2
 ))
-with(forage, points(ind.nmds$points[species.sa == "Wolf Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "Wolf Okanogan",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Wolf Okanogan", 1]),
   mean(ind.nmds$points[species.sa == "Wolf Okanogan", 2])
 ),
 pch = 14, cex = 2))
-with(forage, points(ind.nmds$points[species.sa == "BlackBear Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "BlackBear Okanogan",],
                     pch = 0))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "BlackBear Okanogan", 1]),
@@ -1880,7 +2783,7 @@ title(xlab = "NMDS 1", ylab = "NMDS 2", main = "Okanogan (Cougar vs. Wolf vs. Bl
 box()
 
 #Northeast - Cougar vs Wolf
-with(forage, points(ind.nmds$points[species.sa == "Cougar Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "Cougar Northeast",],
                     pch = 3))
 with(forage, points(
   cbind(mean(ind.nmds$points[species.sa == "Cougar Northeast", 1]),
@@ -1889,7 +2792,7 @@ with(forage, points(
   lwd = 1,
   cex = 2
 ))
-with(forage, points(ind.nmds$points[species.sa == "Wolf Northeast", ],
+with(forage, points(ind.nmds$points[species.sa == "Wolf Northeast",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Wolf Northeast", 1]),
@@ -1910,7 +2813,7 @@ title(xlab = "NMDS 1", ylab = "NMDS 2", main = "Northeast (Cougar vs. Wolf)")
 box()
 
 #Okanogan - Cougar vs Wolf
-with(forage, points(ind.nmds$points[species.sa == "Cougar Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "Cougar Okanogan",],
                     pch = 3))
 with(forage, points(
   cbind(mean(ind.nmds$points[species.sa == "Cougar Okanogan", 1]),
@@ -1919,7 +2822,7 @@ with(forage, points(
   lwd = 1,
   cex = 2
 ))
-with(forage, points(ind.nmds$points[species.sa == "Wolf Okanogan", ],
+with(forage, points(ind.nmds$points[species.sa == "Wolf Okanogan",],
                     pch = 2))
 with(forage, points(cbind(
   mean(ind.nmds$points[species.sa == "Wolf Okanogan", 1]),

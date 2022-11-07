@@ -399,7 +399,7 @@ CO_S_FO <- df_spp
 CO_W_FO <- df_spp
 
 # COMMENTED OUT THE FOR LOOP - UNCOMMENT TO RE-RUN
-# for (i in 1:10000) {
+for (i in 1:100) {
   # i=1
   # ok now use the function to generate outputs for each  of the eight groups (carnivore, studyarea, season) and then rowbind to merge
   # note that this randomly assigns "whitetailedeeer" or "muledeer" to the "deerunkspp" entries randomly by proportion of that carnivore-studyarea-season subgroup
@@ -918,9 +918,12 @@ pianka_plot <-
 
 
 # plot the %FO results from the bootstrap estimates (w/ error bars)
-
+plot(PN_S_FO)
+plot(CN_S_FO)
         
-        
+############################
+# START HERE!
+############################        
         
         
         
@@ -1567,7 +1570,12 @@ shan_filter <-
 shan_filter("Puma concolor", "Northeast", "Summer")
 data_test[, 13:14]
 
-# create percent frequency of occurrence (Pct_FO) function
+# test criteria
+depositorspp = "Puma concolor"
+studyarea = "Northeast"
+season = "Summer"
+
+# create percent frequency of occurrence (Pct_FO) function for single run
 Pct_FO <- function(data, depositorspp, studyarea, season) {
   library(dplyr)
   library(tidyr)
@@ -1598,37 +1606,101 @@ Pct_FO <- function(data, depositorspp, studyarea, season) {
   
 }
 
-# create dataframes for each species/study area combo
+# create %FO plot for bootstrapped data run
+
+# first look at the data (loaded from bs10000 run above)
+# bootstrapped %FO vectors by species
+PN_S_FO
+PN_W_FO
+PO_S_FO
+PO_W_FO
+CN_S_FO
+CN_W_FO
+CO_S_FO
+CO_W_FO
+
+# test criteria
+# data_FO_boot <- PN_S_FO
+# depositorspp <- "Puma concolor"
+# studyarea <- "Northeast"
+# season <- "Summer"
+
+# create a quantile function to use inside the loop to get the lower and upper 95% confidence intervals using the quantile function
+
+quant_boot_low <- function(x) {  # lower 95% CIs
+  quantile(as.vector(x), 0.025)
+}
+quant_boot_high <- function(x) { # upper 95% CIs
+  quantile(as.vector(x), 0.975)
+}
+
+# take the resulting table and turn it into 1's if the item was present and 0's otherwise
+Pct_FO_boot <-
+  function(data_FO_boot, depositorspp, studyarea, season) {
+    library(dplyr)
+    library(tidyr)
+        # take the resulting table and turn it into 1's if the item was present and 0's otherwise
+    FO_bi <- data_FO_boot %>% mutate_if(is.numeric, ~ 1 * (. > 0))
+    FO_spp <- colSums(data_FO_boot)
+    FO_low <- sapply(data_FO_boot, quant_boot_low)
+    names(FO_low) <- preynames
+    FO_high <- sapply(data_FO_boot, quant_boot_high)
+    names(FO_high) <- preynames
+    # rename columns for FO_low and FO_high from muledeer.97.5%, etc. to just muledeer, etc. using preynames()
+
+    # now divide the column sums by the total number of scats (rows) to get the percent frequency of occurrence
+    FO_spp <- FO_spp / as.integer(nrow(FO_bi))
+    FO_spp <- stack(FO_spp)
+    FO_spp <- as.data.frame(FO_spp)
+    colnames(FO_spp) <- c("Pct_FO", "PreyItem")
+    FO_spp <- FO_spp[c("PreyItem", "Pct_FO")]
+    FO_spp$Pct_low <- FO_low # add lower 95% CI
+    FO_spp$Pct_high <- FO_high # add higher 95% CI
+    FO_spp <-
+      FO_spp %>% mutate(StudyArea = studyarea, .before = PreyItem) %>% mutate(DepositorSpp = depositorspp, .before = StudyArea) %>% mutate(Season = season, .after = StudyArea)
+    assign((paste0(
+      sub(" .*", "", depositorspp), "_", studyarea, "_", season
+    )) , FO_spp)
+    
+  }
+
+# create dataframes for each species/study area bootstrapped combo
 
 # cougars / Puma concolor
-PN_S <- Pct_FO(data, "Puma concolor", "Northeast", "Summer")
-PN_W <- Pct_FO(data, "Puma concolor", "Northeast", "Winter")
-PO_S <- Pct_FO(data, "Puma concolor", "Okanogan", "Summer")
-PO_W <- Pct_FO(data, "Puma concolor", "Okanogan", "Winter")
+PN_S <- Pct_FO_boot(PN_S_FO, "Puma concolor", "Northeast", "Summer")
+PN_W <- Pct_FO_boot(PN_W_FO, "Puma concolor", "Northeast", "Winter")
+PO_S <- Pct_FO_boot(PO_S_FO, "Puma concolor", "Okanogan", "Summer")
+PO_W <- Pct_FO_boot(PO_W_FO, "Puma concolor", "Okanogan", "Winter")
 
 # wolves / Canis lupus
-CN_S <- Pct_FO(data, "Canis lupus", "Northeast", "Summer")
-CN_W <- Pct_FO(data, "Canis lupus", "Northeast", "Winter")
-CO_S <- Pct_FO(data, "Canis lupus", "Okanogan", "Summer")
-CO_W <- Pct_FO(data, "Canis lupus", "Okanogan", "Winter")
+CN_S <- Pct_FO_boot(CN_S_FO, "Canis lupus", "Northeast", "Summer")
+CN_W <- Pct_FO_boot(CN_W_FO, "Canis lupus", "Northeast", "Winter")
+CO_S <- Pct_FO_boot(CO_S_FO, "Canis lupus", "Okanogan", "Summer")
+CO_W <- Pct_FO_boot(CO_W_FO, "Canis lupus", "Okanogan", "Winter")
 
-PN <- Pct_FO(data, "Puma concolor", "Northeast")
-PO <- Pct_FO(data, "Puma concolor", "Okanogan")
-CN <- Pct_FO(data, "Canis lupus", "Northeast")
-CO <- Pct_FO(data, "Canis lupus", "Okanogan")
+# PN <- Pct_FO(data, "Puma concolor", "Northeast")
+# PO <- Pct_FO(data, "Puma concolor", "Okanogan")
+# CN <- Pct_FO(data, "Canis lupus", "Northeast")
+# CO <- Pct_FO(data, "Canis lupus", "Okanogan")
+
 # combine dataframes
-FO_spp_all <- rbind(PN_S_FO, PN_W_FO)
+FO_spp_all <- rbind(PN_S, PN_W, PO_S, PO_W, CN_S, CN_W, CO_S, CO_W)
 # plot
 # https://community.rstudio.com/t/help-with-making-plot-with-multiple-columns/50763/2
 # by depositor species
 # 
 
-# # START HERE ON 10/21/22 - USE THE BOOTSTRAPPED ESTIMATES FROM ABOVE TO CREATE %FO PLOTS ----
-# ###################################
-ggplot(FO_spp_all, aes(DepositorSpp, Pct_FO, fill = PreyItem)) + geom_col(position = "dodge")
+# combine dataframes, remove rows (prey items) where Pct_FO is 0, and then and run the code below
+# Cougar - Northeast
+FO_spp_all <- rbind(PN_S, PN_W) %>% .[.$Pct_FO != 0, ]
+# Cougar - Okanogan
+FO_spp_all <- rbind(PO_S, PO_W) %>% .[.$Pct_FO != 0, ]
+# Wolf - Northeast
+FO_spp_all <- rbind(CN_S, CN_W) %>% .[.$Pct_FO != 0, ]
+# Wolf - Okanogan
+FO_spp_all <- rbind(CO_S, CO_W) %>% .[.$Pct_FO != 0, ]
 
-# combine dataframes
-FO_spp_all <- rbind(CO_S, CO_W)
+ggplot(FO_spp_all, aes(DepositorSpp, Pct_FO, fill = PreyItem)) + geom_col(position = "dodge")
 
 # set factor legend order for PreyItem so they come out the same
 str(FO_spp_all$PreyItem)
@@ -1651,9 +1723,15 @@ FO_spp_all$PreyItem <-
   )
 # by season
 p <-
-  ggplot(FO_spp_all, aes(Season, Pct_FO, fill = PreyItem, label = PreyItem)) + geom_col(position = position_dodge2(width = 0.9, preserve = "single")) + scale_fill_manual(
-    values = c(
-      "muledeer" = "chartreuse4",
+  ggplot(FO_spp_all, aes(Season, Pct_FO, fill = PreyItem, label = PreyItem)) +
+    geom_col(position = position_dodge(width = 0.9, preserve = "single")) +
+    geom_errorbar(
+      aes(ymin = Pct_low, ymax = Pct_high), 
+      position = position_dodge(width = 0.9, preserve = "single"), 
+      width = 0.2) +
+    scale_fill_manual(
+      values = c(
+        "muledeer" = "chartreuse4",
       "whitetaileddeer" = "dodgerblue",
       "moose" = "orangered",
       "elk" = "orange",
@@ -1669,10 +1747,38 @@ p <-
 # + geom_text(position = position_dodge2(width = 0.9, preserve = "single"), angle = 90, vjust=0.35, hjust= -0.05)
 
 #change plot title ("Cougar - Northeast") based on selected FO_spp_all combined dataframes
+p1 <-
+  p + scale_y_continuous(limits = c(0, 1.0)) +
+    ggtitle("Cougar - Northeast") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    ylab("% Frequency of Occurrence") +
+    # guides(fill = guide_legend(title = "Prey Item"))
+    theme(legend.position = "none")
+p2 <-
+  p + scale_y_continuous(limits = c(0, 1.0)) +
+    ggtitle("Cougar - Okanogan") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    ylab("% Frequency of Occurrence") +
+    # guides(fill = guide_legend(title = "Prey Item")) 
+    theme(legend.position = "none")
+p3 <-
+  p + scale_y_continuous(limits = c(0, 1.0)) +
+    ggtitle("Wolf - Northeast") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    ylab("% Frequency of Occurrence") +
+    # guides(fill = guide_legend(title = "Prey Item")) 
+    theme(legend.position = "none")
 p4 <-
-  p + scale_y_continuous(limits = c(0, 1.0)) + ggtitle("Wolf - Okanogan") + theme_bw() + theme(plot.title =
-                                                                                                 element_text(hjust = 0.5)) + ylab("% Frequency of Occurrence") + guides(fill =
-                                                                                                                                                                           guide_legend(title = "Prey Item"))
+  p + scale_y_continuous(limits = c(0, 1.0)) +
+    ggtitle("Wolf - Okanogan") +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5)) +
+    ylab("% Frequency of Occurrence") +
+    # guides(fill = guide_legend(title = "Prey Item")) 
+    theme(legend.position = "none")
 p1
 p2
 p3
@@ -1691,11 +1797,19 @@ get_legend <- function(myggplot) {
   return(legend)
 }
 
+p_legend <-
+  p + scale_y_continuous(limits = c(0, 1.0)) +
+  ggtitle("Cougar - Northeast") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  ylab("% Frequency of Occurrence") +
+  guides(fill = guide_legend(title = "Prey Item"))
+  # theme(legend.position = "none")
 # p <- ggplot()
 # p2 <- ggplot(mtcars, aes(mpg, wt, col=factor(am))) + geom_point()
-legend <- get_legend(p2)
+legend <- get_legend(p_legend)
 
-
+#### Percent Frequency of Occurrence Plots ####
 grid.arrange(p1, p2, p3, p4, legend,
              layout_matrix = rbind(c(1, 1, 2, 2, 5), c(3, 3, 4, 4, 5)))
 
